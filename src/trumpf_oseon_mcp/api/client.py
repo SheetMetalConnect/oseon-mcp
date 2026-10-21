@@ -25,6 +25,15 @@ class OseonAPIClient:
     def _scalar(value: Any) -> str:
         return str(value).lower() if isinstance(value, bool) else str(value)
 
+    def _parameter(self, parameter: dict[str, Any], value: Any) -> str:
+        if not isinstance(value, list):
+            return self._scalar(value)
+        separators = {"csv": ",", "ssv": " ", "tsv": "\t", "pipes": "|"}
+        fmt = parameter.get("collectionFormat", "csv")
+        if fmt not in separators:
+            raise ValueError("Unsupported array serialization")
+        return separators[fmt].join(self._scalar(item) for item in value)
+
     async def invoke(
         self,
         method: str,
@@ -57,13 +66,19 @@ class OseonAPIClient:
             raise ValueError(
                 "Transport and authentication headers cannot be supplied by tools"
             )
-        headers = {"Accept": "application/json", "api-version": self.config.api_version}
+        produces = operation.definition.get(
+            "produces", self.registry.document.get("produces", [])
+        )
+        headers = {
+            "Accept": ", ".join(produces) if produces else "*/*",
+            "api-version": self.config.api_version,
+        }
         defaults = {
             "Trumpf-User": self.config.user_header,
             "Trumpf-Terminal": self.config.terminal_header,
         }
         declared_headers = {
-            p["name"] for p in operation.parameters if p["in"] == "header"
+            p["name"]: p for p in operation.parameters if p["in"] == "header"
         }
         supplied_headers = {
             k: v for k, v in defaults.items() if v and k in declared_headers
@@ -71,11 +86,11 @@ class OseonAPIClient:
         supplied_headers.update(header_parameters)
         self.registry.validate_parameters(operation, "header", supplied_headers)
         for name, value in supplied_headers.items():
-            value = self._scalar(value)
+            value = self._parameter(declared_headers[name], value)
             if (
                 not name.isascii()
                 or not name.replace("-", "").isalnum()
-                or any(ord(c) < 32 or ord(c) > 126 for c in value)
+                or any((ord(c) < 32 and c != "\t") or ord(c) > 126 for c in value)
             ):
                 raise ValueError("Invalid HTTP header")
             headers[name] = value
@@ -87,8 +102,11 @@ class OseonAPIClient:
             ).decode()
             headers["Authorization"] = f"Basic {encoded}"
         target = operation.path
-        for name, value in path_parameters.items():
-            value = self._scalar(value)
+        for parameter in operation.parameters:
+            if parameter["in"] != "path":
+                continue
+            name = parameter["name"]
+            value = self._parameter(parameter, path_parameters[name])
             if value in {"", ".", ".."}:
                 raise ValueError("Unsafe path parameter")
             target = target.replace("{" + name + "}", quote(value, safe=""))
@@ -98,18 +116,10 @@ class OseonAPIClient:
             if parameter["in"] != "query" or name not in query_parameters:
                 continue
             value = query_parameters[name]
-            if isinstance(value, list):
-                fmt = parameter.get("collectionFormat", "csv")
-                values = [self._scalar(item) for item in value]
-                if fmt == "multi":
-                    query.extend((name, item) for item in values)
-                else:
-                    separators = {"csv": ",", "ssv": " ", "tsv": "\t", "pipes": "|"}
-                    if fmt not in separators:
-                        raise ValueError("Unsupported array serialization")
-                    query.append((name, separators[fmt].join(values)))
+            if isinstance(value, list) and parameter.get("collectionFormat") == "multi":
+                query.extend((name, self._scalar(item)) for item in value)
             else:
-                query.append((name, self._scalar(value)))
+                query.append((name, self._parameter(parameter, value)))
         bodies = [p for p in operation.parameters if p["in"] == "body"]
         kwargs: dict[str, Any] = {}
         if not bodies and body is not None:
@@ -147,7 +157,8 @@ class OseonAPIClient:
                 )
         except httpx.HTTPError:
             raise ValueError(
-                "Oseon transport failed; no automatic retry. A write outcome may be unknown."
+                "Oseon transport failed; no automatic retry. "
+                "A write outcome may be unknown."
             ) from None
         if not 200 <= response.status_code < 300:
             raise ValueError(

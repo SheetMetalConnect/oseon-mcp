@@ -12,7 +12,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **BREAKING:** Generic discovery, description and invocation replace order-specific tools and inferred filtering, labels and pagination.
 - **BREAKING:** A configured external Swagger 2.0 API file and origin are required; package imports no longer initialize a server.
 - Runtime method/path identities retain operations with duplicate operation IDs without bundling vendor documentation.
-- Registry validation covers path, query, header and body inputs, local schema references and array query serialization.
+- Registry validation covers path, query, header and body inputs, local schema references, timestamp formats and finite JSON numbers.
+- Request Accept headers follow declared response media; query, header and path arrays use their declared collection formats.
+- Source distributions include offline fixtures, usage/setup docs and supporting assets.
 - Read-only startup defaults require explicit opt-in for mutations; requests disable redirects and inherited proxies and never retry automatically.
 - HTTP failures omit vendor diagnostics; successful responses retain JSON, text, empty or base64 binary data.
 - Deterministic offline tests replace the live-I/O script; optional private-file mock coverage verifies every registered operation.

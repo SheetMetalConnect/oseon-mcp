@@ -17,4 +17,6 @@ uv run --locked pytest -q -s tests/test_local_api.py
 
 The optional test prints aggregate method counts only. Never commit vendor documentation, copied schemas, full endpoint catalogs, client payloads, configuration values or private test-session reports. Tests and fixtures committed here must remain synthetic.
 
+Source distributions include the shared test fixtures, setup and usage docs, and README banner. After extracting a source distribution, install its locked development dependencies and run the same offline suite from that extracted directory.
+
 Format edited Python files with Black. Build locally with `uv build --no-sources`. Changes include applicable offline tests, usage documentation and changelog entries. GitHub Actions are not used; PRs state local commands, results and verification limits. See [MIT terms](LICENSE).

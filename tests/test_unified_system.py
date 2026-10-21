@@ -278,5 +278,133 @@ def test_unsupported_or_unsafe_spec(document, update):
         OperationRegistry(document)
 
 
+def test_declared_timestamp_format(registry):
+    schema = {"type": "string", "format": "date-time"}
+    registry.validate("2026-01-01T00:00:00Z", schema)
+    with pytest.raises(ValueError, match="declared API schema"):
+        registry.validate("not-a-timestamp", schema)
+
+
+@pytest.mark.parametrize(
+    ("scope", "media", "expected"),
+    [
+        ("operation", ["application/pdf"], "application/pdf"),
+        ("global", ["text/plain"], "text/plain"),
+        (
+            "operation",
+            ["application/octet-stream", "application/json"],
+            "application/octet-stream, application/json",
+        ),
+        ("operation", [], "*/*"),
+    ],
+    ids=["operation", "global", "multiple", "unspecified"],
+)
+async def test_accept_declared_media(config, document, scope, media, expected):
+    document["produces"] = ["application/json"]
+    if scope == "operation":
+        document["paths"]["/sheets"]["get"]["produces"] = media
+    else:
+        document["produces"] = media
+
+    def respond(request):
+        assert request.headers["Accept"] == expected
+        return httpx.Response(204)
+
+    api = OseonAPIClient(
+        config, OperationRegistry(document), httpx.MockTransport(respond)
+    )
+    await api.invoke("GET", "/sheets")
+
+
+@pytest.mark.parametrize(
+    ("fmt", "separator"),
+    [(None, ","), ("csv", ","), ("pipes", "|"), ("ssv", " "), ("tsv", "\t")],
+    ids=["default", "csv", "pipes", "ssv", "tsv"],
+)
+async def test_header_array_collection_format(config, document, fmt, separator):
+    parameter = {
+        "name": "Keys",
+        "in": "header",
+        "type": "array",
+        "items": {"type": "string"},
+    }
+    if fmt:
+        parameter["collectionFormat"] = fmt
+    document["paths"]["/sheets"]["get"]["parameters"] = [parameter]
+
+    def respond(request):
+        assert request.headers["Keys"] == f"one{separator}two"
+        return httpx.Response(204)
+
+    api = OseonAPIClient(
+        config, OperationRegistry(document), httpx.MockTransport(respond)
+    )
+    await api.invoke("GET", "/sheets", header_parameters={"Keys": ["one", "two"]})
+
+
+@pytest.mark.parametrize(
+    ("fmt", "separator"),
+    [
+        (None, b"%2C"),
+        ("csv", b"%2C"),
+        ("pipes", b"%7C"),
+        ("ssv", b"%20"),
+        ("tsv", b"%09"),
+    ],
+    ids=["default", "csv", "pipes", "ssv", "tsv"],
+)
+async def test_path_array_collection_format(config, document, fmt, separator):
+    parameter = {
+        "name": "keys",
+        "in": "path",
+        "required": True,
+        "type": "array",
+        "items": {"type": "string"},
+    }
+    if fmt:
+        parameter["collectionFormat"] = fmt
+    document["paths"]["/bundles/{keys}"] = {"get": {"parameters": [parameter]}}
+
+    def respond(request):
+        assert request.url.raw_path == b"/service/bundles/one" + separator + b"two"
+        return httpx.Response(204)
+
+    api = OseonAPIClient(
+        config, OperationRegistry(document), httpx.MockTransport(respond)
+    )
+    await api.invoke("GET", "/bundles/{keys}", path_parameters={"keys": ["one", "two"]})
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
+async def test_nonfinite_numeric_query_never_reaches_transport(config, document, value):
+    document["paths"]["/sheets"]["get"]["parameters"] = [
+        {"name": "amount", "in": "query", "type": "number"}
+    ]
+
+    def forbidden(request):
+        pytest.fail("Non-finite input reached transport")
+
+    api = OseonAPIClient(
+        config, OperationRegistry(document), httpx.MockTransport(forbidden)
+    )
+    with pytest.raises(ValueError, match="finite"):
+        await api.invoke("GET", "/sheets", query_parameters={"amount": value})
+
+
+async def test_finite_numeric_query(config, document):
+    document["paths"]["/sheets"]["get"]["parameters"] = [
+        {"name": "amount", "in": "query", "type": "number"}
+    ]
+
+    def respond(request):
+        assert request.url.params["amount"] == "1.25"
+        return httpx.Response(204)
+
+    api = OseonAPIClient(
+        config, OperationRegistry(document), httpx.MockTransport(respond)
+    )
+    await api.invoke("GET", "/sheets", query_parameters={"amount": 1.25})
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-q"]))

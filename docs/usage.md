@@ -12,7 +12,7 @@ Discover jobs or raw sheets by searching the supplied operation metadata. A sear
 
 Describe the chosen operation before calling it. Keep placeholders in the path template and pass their values through `path_parameters`. Pass query and header values through `query_parameters` and `header_parameters`, using declared names and JSON types. A body is the declared JSON value, including an object, array or scalar where supported. Request bodies use JSON or declared plain text. Form and multipart input are not supported.
 
-Required parameters, types, enums, numeric constraints, formats and body schemas are validated before HTTP. Undeclared parameters and unregistered method/path pairs are rejected. Path segments are encoded individually; array query parameters use the Swagger collection format. No filtering, field renaming, aggregation or automatic API pagination is applied.
+Required parameters, types, enums, numeric constraints, finite JSON numbers, supported JSON Schema formats and body schemas are validated before HTTP. Undeclared parameters and unregistered method/path pairs are rejected. Path segments are encoded individually; array path, query and header parameters use the Swagger collection format. The Accept header follows declared response media types. No filtering, field renaming, aggregation or automatic API pagination is applied.
 
 Responses retain their JSON structure. Empty responses return `data: null`; text responses return a string; other media return base64 data with the content type and encoding. Large responses and files are read into memory, so select narrow API filters where the supplied contract permits them.
 

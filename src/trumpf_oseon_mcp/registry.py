@@ -133,7 +133,7 @@ class OperationRegistry:
 
     def describe(self, method: str, path: str) -> dict[str, Any]:
         operation = self.get(method, path)
-        # References remain local; only definitions reachable from this operation are returned.
+        # Return only local definitions reachable from this operation.
         schemas: dict[str, Any] = {}
 
         def collect(value: Any) -> None:
@@ -164,6 +164,10 @@ class OperationRegistry:
         }
 
     def validate(self, value: Any, schema: dict[str, Any]) -> None:
+        try:
+            json.dumps(value, allow_nan=False)
+        except (TypeError, ValueError):
+            raise ValueError("Input must be JSON with finite numbers") from None
         root = {**self.document, **schema}
         validator = Draft4Validator(root, format_checker=FormatChecker())
         if next(validator.iter_errors(value), None) is not None:

@@ -38,7 +38,7 @@ def create_server(
     def discover_operations(
         query: str = "", method: str | None = None, offset: int = 0, limit: int = 25
     ) -> dict[str, Any]:
-        """Search local operation metadata without contacting Oseon; results are paginated."""
+        """Search local operation metadata without HTTP; results are paginated."""
         try:
             return registry.discover(query, method, offset, limit)
         except ValueError as error:
@@ -46,7 +46,7 @@ def create_server(
 
     @server.tool(annotations=ToolAnnotations(read_only_hint=True))
     def describe_operation(method: str, path: str) -> dict[str, Any]:
-        """Read parameters and reachable input schemas for one registered method/path pair."""
+        """Read parameters and input schemas for one registered method/path pair."""
         try:
             return registry.describe(method, path)
         except ValueError as error:
@@ -68,7 +68,7 @@ def create_server(
         header_parameters: dict[str, Any] | None = None,
         body: Any = None,
     ) -> dict[str, Any]:
-        """Invoke one registered operation. Writes require startup opt-in; no retries."""
+        """Invoke one operation. Writes require startup opt-in; no retries."""
         try:
             return await client.invoke(
                 method, path, path_parameters, query_parameters, header_parameters, body

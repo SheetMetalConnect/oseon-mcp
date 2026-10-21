@@ -91,8 +91,11 @@ from trumpf_oseon_mcp.registry import OperationRegistry
 from trumpf_oseon_mcp.api.client import OseonAPIClient
 config = get_config()
 registry = OperationRegistry.load(config.api_file)
-transport = httpx.MockTransport(lambda request: httpx.Response(200, json={"synthetic": True}))
-create_server(config, registry, OseonAPIClient(config, registry, transport)).run(transport="stdio")
+transport = httpx.MockTransport(
+    lambda request: httpx.Response(200, json={"synthetic": True})
+)
+api = OseonAPIClient(config, registry, transport)
+create_server(config, registry, api).run(transport="stdio")
 """
     env = {
         **os.environ,
