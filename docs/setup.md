@@ -61,8 +61,10 @@ For a local terminal check in the configured checkout:
 The launcher inherits the process environment and sets only the working directory. Offline verification requires no Oseon configuration:
 
 ```sh
-uv run --locked pytest -q
+uv run --locked --extra dev pytest -q
 ```
+
+Claude Desktop and Claude Code use local stdio processes. This setup does not install a remote MCP service for Claude's web application.
 
 ## Safety and recovery
 

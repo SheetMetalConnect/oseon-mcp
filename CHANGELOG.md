@@ -5,11 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## [2.0.1] - 2026-10-21
 
 ### Added
 - Read-only MCP tools for work orders, workplace nestings, stock and remainder sheets using declared GET operations.
 - Remainder-sheet results match articles to positive stock by article name and report how many raw-sheet articles the API returned.
+
+### Changed
+- Usage documentation distinguishes direct read-only workflows from generic operation dispatch and explains API result limits.
 
 ## [2.0.0] - 2026-10-21
 
@@ -44,5 +47,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Pagination support
 - Quality filtering
 
+[2.0.1]: https://github.com/SheetMetalConnect/oseon-mcp/compare/v2.0.0...v2.0.1
 [2.0.0]: https://github.com/SheetMetalConnect/oseon-mcp/compare/v1.0.0...v2.0.0
 [1.0.0]: https://github.com/SheetMetalConnect/oseon-mcp/releases/tag/v1.0.0

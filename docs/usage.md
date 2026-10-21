@@ -1,6 +1,6 @@
 # Use the tools
 
-Generic operation names, methods, paths, parameters and input schemas come from the selected local file. Four read-only workflow tools use specific GET operations declared in that file. No automatic API pagination is applied.
+The server exposes four read-only workflow tools and three generic API tools. The workflow tools use GET operations declared in the supplied local Swagger file. The generic tools take their method/path pairs, parameters and schemas from that file.
 
 | Tool | Input | Result |
 |---|---|---|
@@ -12,13 +12,22 @@ Generic operation names, methods, paths, parameters and input schemas come from 
 | `list_stock` | Optional `article` filter | API stock rows without embedded images |
 | `list_remainder_sheets` | Optional raw-sheet `filter` | Positive stock rows for matching remainder-sheet articles, with returned article counts |
 
-The workflow tools expose source values without translating statuses. Nestings are requested per workplace; `max_count` is applied separately to each workplace. The stock and remainder-sheet tools omit embedded images. Remainder sheets are selected from `IsRemainderSheet` articles and matched to stock by exact article name with quantity above zero. The API does not declare pagination for these article and stock routes; the returned counts do not prove complete inventory coverage.
+## What the workflow results mean
+
+- `list_work_orders` returns one page from the production-order search. `page` and `size` are sent to Oseon; the tool does not fetch later pages or reorder results.
+- `list_nestings` asks Oseon for manufacturing orders at the requested workplace. Without `workplace_id`, it first lists workplaces and queries each one. `max_count` applies separately to each workplace, so the result can omit additional orders.
+- `list_stock` returns the stock overview rows supplied by Oseon, optionally filtered by article text. It removes embedded images but does not aggregate quantities or infer availability.
+- `list_remainder_sheets` finds raw-sheet articles marked `IsRemainderSheet`, asks for stock under each article name and returns exact-name matches with `Quantity > 0`. Each row retains its quantity, unit and location. `raw_sheets_returned` and `remainder_articles_checked` describe the articles examined; they are not total inventory counts.
+
+The raw-sheet and stock operations declare no pagination. An installation may cap unfiltered results, so an empty or short list does not prove that no other stock exists. The tools keep Oseon's status values without translating them. Stock and remainder-sheet results omit embedded images.
+
+## Generic API operations
 
 Discover jobs or raw sheets by searching the supplied operation metadata. A search matches method, path, operation ID, summary and tags; it returns only what that file declares. Use the returned method/path pair as the identity: operation IDs may be duplicated.
 
 Describe the chosen operation before calling it. Keep placeholders in the path template and pass their values through `path_parameters`. Pass query and header values through `query_parameters` and `header_parameters`, using declared names and JSON types. A body is the declared JSON value, including an object, array or scalar where supported. Request bodies prefer declared JSON. Set `content_type` to select a declared JSON, `text/json` or plain-text representation; a plain-text body must be a string. Form and multipart input are not supported, and form fields are never inferred from a body schema. An operation with a JSON alternative remains addressable through that representation.
 
-Required parameters, types, enums, numeric constraints, finite JSON numbers, supported JSON Schema formats, Swagger base64/integer/float bounds and body schemas are validated before HTTP. Undeclared parameters and unregistered method/path pairs are rejected. Path segments are encoded individually; array path, query and header parameters use the Swagger collection format. The Accept header follows declared response media types. No filtering, field renaming, aggregation or automatic API pagination is applied.
+Required parameters, types, enums, numeric constraints, finite JSON numbers, supported JSON Schema formats, Swagger base64/integer/float bounds and body schemas are validated before HTTP. Undeclared parameters and unregistered method/path pairs are rejected. Path segments are encoded individually; array path, query and header parameters use the Swagger collection format. The Accept header follows declared response media types. The generic invocation tool does not filter, rename or aggregate response fields, or fetch later API pages automatically.
 
 `describe_operation` returns the selected operation’s summary, description, tags, deprecation flag, declared security and response contracts. Its schema map includes only references reachable from that operation’s inputs and responses. These are local metadata, not evidence of installation behavior.
 
@@ -26,9 +35,9 @@ Security alternatives retain Swagger's OR/AND semantics. Requirements that canno
 
 Responses retain their JSON structure. Empty responses return `data: null`; text responses return a string; other media return base64 data with the content type and encoding. Declared response headers are returned as strings under `headers`; credential/cookie headers are withheld. A 304 result returns `data: null` only when declared for the operation or covered by its default response. Redirects are never followed. Large responses and files are read into memory, so select narrow API filters where the supplied contract permits them.
 
-## MCP interface
+## Previous tool names
 
-Seven tools are registered. The former 13 named order/dashboard tools are removed; legacy tool-name compatibility is not provided.
+The former 13 order and dashboard tool names are not registered. Use the four workflows above or generic discovery and invocation.
 
 | Removed tool group | Names |
 |---|---|

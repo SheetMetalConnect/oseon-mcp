@@ -2,7 +2,7 @@
 
 # Oseon MCP
 
-Inspect Oseon work orders, nestings, stock and remainder sheets with an MCP agent. The server uses MCP Python SDK v2, reads a local API file and starts in read-only mode.
+Ask an MCP agent about Oseon work orders, manufacturing nestings, stock and remainder sheets. The server uses MCP Python SDK v2, loads a locally supplied Swagger 2.0 file and starts in read-only mode.
 
 **Use at your own risk. This educational software carries no warranty. Write access can change manufacturing data.**
 
@@ -19,23 +19,23 @@ flowchart LR
     S --> H
 ```
 
-## What you can ask
+## Core workflows
 
-- **Work orders:** “Which production orders are on the first page?”
-- **Nestings:** “Which manufacturing nestings are listed for our workplaces?”
-- **Stock:** “What stock does the API show for this article?”
-- **Remainder sheets:** “Which remainder sheets currently have positive stock, and where are they?”
+- **Work orders:** “Show the first page of production work orders.”
+- **Nestings:** “Which manufacturing orders are listed for our workplaces?”
+- **Stock:** “What stock does Oseon show for this article?”
+- **Remainder sheets:** “Which remainder sheets have positive stock, and where are they?”
 
-The four named tools use declared GET operations. Generic discovery, description and invocation remain available for the rest of the supplied API file. The remainder-sheet tool checks stock for each returned remainder article. If the server limits an unfiltered article list, its result covers only the returned articles. See the [tool usage guide](docs/usage.md).
+Four direct tools handle these questions through declared GET operations. Three generic tools discover, describe and invoke other operations in the local API file. See [tool inputs and result limits](docs/usage.md).
 
 ## Scope
 
-API/MCP parity means support for the declared REST method/path operations in the supplied Swagger 2.0 file, within the documented input and media rules. It does not establish installation-specific availability, permissions or live business outcomes. Mutations require explicit startup opt-in. A read-only SQL connection to TRUMPF systems is **out of scope** for this educational demo.
+The generic tools register every supported REST method/path pair in the supplied Swagger 2.0 file. Registration and offline request tests do not establish that each operation works on a particular installation. The four direct tools were exercised with read-only API requests on one installation; their results depend on that installation's data and permissions. The API may limit unfiltered stock and raw-sheet lists, so a remainder-sheet result does not prove complete inventory coverage. Writes require explicit startup opt-in and have not been tested against a live system. SQL access and creating nestings are outside this connector's current scope.
 
 | Guide | Contents |
 |---|---|
 | [Install and configure](docs/setup.md) | Local API file, authentication and MCP host setup |
-| [Use the tools](docs/usage.md) | Discover, describe and invoke operations |
+| [Use the tools](docs/usage.md) | Core workflows, generic operations and result limits |
 | [Testing and contribution](CONTRIBUTING.md) | Offline tests and private-file coverage |
 | [Implementation](ARCHITECTURE.md) | Source ownership and request flow |
 | [Changelog](CHANGELOG.md) | Package behavior changes |
@@ -52,4 +52,4 @@ Built by [Luke van Enkhuizen](https://vanenkhuizen.com) to demonstrate AI + manu
 
 **No TRUMPF affiliation** — Educational project using public API documentation. TRUMPF owns Oseon and its API documentation; this repository does not distribute that documentation.
 
-**MIT License** — [License terms](LICENSE) | **v2.0.0** — Runtime API registry and MCP SDK v2 adapter.
+**MIT License** — [License terms](LICENSE) | **v2.0.1** — Runtime API registry, MCP SDK v2 adapter and read-only workflows.

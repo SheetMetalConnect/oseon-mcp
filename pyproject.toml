@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "trumpf-oseon-mcp"
-version = "2.0.0"
+version = "2.0.1"
 description = "MCP SDK v2 adapter for a user-supplied local Oseon API specification"
 readme = "README.md"
 license = "MIT"
