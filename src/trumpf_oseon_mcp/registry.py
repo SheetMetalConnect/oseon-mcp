@@ -62,6 +62,7 @@ class OperationRegistry:
             self._check_path(path)
             if not isinstance(item, dict):
                 raise ValueError("API path definitions must be objects")
+            item = self.resolve(item)
             for method, definition in item.items():
                 if method not in METHODS:
                     continue
@@ -153,10 +154,15 @@ class OperationRegistry:
         prefixes = {"basic": "basic", "oauth2": "bearer"}
         kind, _, credential = authorization.partition(" ")
         for alternative in requirements:
-            if all(
-                credential
-                and prefixes.get(schemes.get(name, {}).get("type")) == kind.lower()
-                for name in alternative
+            if not alternative:
+                return
+            if (
+                len(alternative) == 1
+                and credential
+                and all(
+                    prefixes.get(schemes.get(name, {}).get("type")) == kind.lower()
+                    for name in alternative
+                )
             ):
                 return
         raise ValueError(

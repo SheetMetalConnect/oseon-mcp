@@ -312,3 +312,37 @@ async def test_basic_and_oauth_conjunction_is_not_reinterpreted_as_or(
     )
     with pytest.raises(ValueError, match="authentication"):
         await api.invoke("GET", "/sheets")
+
+
+async def test_two_oauth_schemes_cannot_share_one_bearer_header(config, document):
+    document["securityDefinitions"] = {
+        name: {"type": "oauth2"} for name in ("SyntheticOAuthA", "SyntheticOAuthB")
+    }
+    document["security"] = [{"SyntheticOAuthA": [], "SyntheticOAuthB": []}]
+
+    def forbidden(request):
+        pytest.fail("Unsatisfied conjunctive security reached HTTP")
+
+    api = OseonAPIClient(
+        config,
+        OperationRegistry(document),
+        httpx.MockTransport(forbidden),
+    )
+    with pytest.raises(ValueError, match="authentication"):
+        await api.invoke("GET", "/sheets")
+
+
+async def test_referenced_path_item_registers_and_dispatches(config, document):
+    document["paths"]["/referenced"] = {"$ref": "#/x-synthetic-path"}
+    document["x-synthetic-path"] = {
+        "get": {"responses": {"204": {"description": "Synthetic response"}}}
+    }
+    registry = OperationRegistry(document)
+    assert registry.get("GET", "/referenced").path == "/referenced"
+
+    def respond(request):
+        assert request.url.path == "/service/referenced"
+        return httpx.Response(204)
+
+    api = OseonAPIClient(config, registry, httpx.MockTransport(respond))
+    assert await api.invoke("GET", "/referenced") == {"status": 204, "data": None}
