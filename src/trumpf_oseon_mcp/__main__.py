@@ -11,6 +11,7 @@ from . import __version__
 from .api.client import OseonAPIClient
 from .config import Config, get_config
 from .registry import OperationRegistry
+from .workflows import ReadOnlyWorkflows
 
 
 def create_server(
@@ -22,6 +23,7 @@ def create_server(
         registry if registry is not None else OperationRegistry.load(config.api_file)
     )
     client = client if client is not None else OseonAPIClient(config, registry)
+    workflows = ReadOnlyWorkflows(client)
     server = MCPServer(
         "oseon-mcp",
         version=__version__,
@@ -29,7 +31,8 @@ def create_server(
         instructions=(
             "Discover operations from the local API file, describe their inputs, "
             "then invoke an exact method/path template. "
-            "No inferred labels, filters, sorting or pagination. "
+            "Read-only work order, nesting, stock and remainder-sheet workflows "
+            "are available alongside exact API dispatch. "
             "Tool results are visible to the MCP host and its model provider."
         ),
     )
@@ -80,6 +83,40 @@ def create_server(
                 body,
                 content_type,
             )
+        except ValueError as error:
+            raise ToolError(str(error)) from None
+
+    @server.tool(annotations=ToolAnnotations(read_only_hint=True))
+    async def list_work_orders(page: int = 0, size: int = 20) -> dict[str, Any]:
+        """List one API page of production work orders with core fields."""
+        try:
+            return await workflows.work_orders(page, size)
+        except ValueError as error:
+            raise ToolError(str(error)) from None
+
+    @server.tool(annotations=ToolAnnotations(read_only_hint=True))
+    async def list_nestings(
+        workplace_id: int | None = None, max_count: int = 20
+    ) -> dict[str, Any]:
+        """List manufacturing nestings for one or all known workplaces."""
+        try:
+            return await workflows.nestings(workplace_id, max_count)
+        except ValueError as error:
+            raise ToolError(str(error)) from None
+
+    @server.tool(annotations=ToolAnnotations(read_only_hint=True))
+    async def list_stock(article: str = "") -> list[dict[str, Any]]:
+        """List stock rows, optionally filtered by article text."""
+        try:
+            return await workflows.stock(article)
+        except ValueError as error:
+            raise ToolError(str(error)) from None
+
+    @server.tool(annotations=ToolAnnotations(read_only_hint=True))
+    async def list_remainder_sheets(filter: str = "") -> dict[str, Any]:
+        """Find remainder sheets with positive stock; API lists may be limited."""
+        try:
+            return await workflows.remainder_sheets(filter)
         except ValueError as error:
             raise ToolError(str(error)) from None
 

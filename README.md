@@ -2,7 +2,7 @@
 
 # Oseon MCP
 
-Inspect Oseon order and material information with an MCP agent using the operations declared in your local API file. The server uses MCP Python SDK v2 and starts in read-only mode.
+Inspect Oseon work orders, nestings, stock and remainder sheets with an MCP agent. The server uses MCP Python SDK v2, reads a local API file and starts in read-only mode.
 
 **Use at your own risk. This educational software carries no warranty. Write access can change manufacturing data.**
 
@@ -21,11 +21,12 @@ flowchart LR
 
 ## What you can ask
 
-- **Customer orders:** “Show the details of a known customer order.”
-- **Production orders:** “Show the details of a known production order.”
-- **Raw sheets and stock:** “Show material information for a known raw sheet or stock item.”
+- **Work orders:** “Which production orders are on the first page?”
+- **Nestings:** “Which manufacturing nestings are listed for our workplaces?”
+- **Stock:** “What stock does the API show for this article?”
+- **Remainder sheets:** “Which remainder sheets currently have positive stock, and where are they?”
 
-These activities use declared GET operations with the required identifiers. The agent discovers the matching operations, describes their inputs and responses, then invokes the selected operation. See the [tool usage guide](docs/usage.md).
+The four named tools use declared GET operations. Generic discovery, description and invocation remain available for the rest of the supplied API file. The remainder-sheet tool checks stock for each returned remainder article. If the server limits an unfiltered article list, its result covers only the returned articles. See the [tool usage guide](docs/usage.md).
 
 ## Scope
 

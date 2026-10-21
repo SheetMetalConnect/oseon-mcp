@@ -27,6 +27,10 @@ async def test_sdk_discovery_and_invocation(config, registry, writes):
             "discover_operations",
             "describe_operation",
             "invoke_operation",
+            "list_work_orders",
+            "list_nestings",
+            "list_stock",
+            "list_remainder_sheets",
         }
         invocation = next(t for t in tools if t.name == "invoke_operation")
         assert invocation.annotations.read_only_hint is not writes
@@ -70,7 +74,7 @@ async def test_production_entrypoint_stdio(api_file, tmp_path, mode):
         command=sys.executable, args=["-m", "trumpf_oseon_mcp"], cwd=tmp_path, env=env
     )
     async with Client(params, mode=mode, read_timeout_seconds=10) as client:
-        assert len((await client.list_tools()).tools) == 3
+        assert len((await client.list_tools()).tools) == 7
         if mode == "auto":
             assert client.session.protocol_version == "2026-07-28"
         result = await client.call_tool("discover_operations", {"query": "jobs"})

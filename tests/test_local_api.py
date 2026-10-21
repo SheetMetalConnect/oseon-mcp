@@ -318,6 +318,10 @@ server.run(transport='stdio')
             "discover_operations",
             "describe_operation",
             "invoke_operation",
+            "list_work_orders",
+            "list_nestings",
+            "list_stock",
+            "list_remainder_sheets",
         }:
             raise AssertionError("Unexpected MCP tool surface")
         discovered = set()
