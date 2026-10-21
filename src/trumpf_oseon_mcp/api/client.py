@@ -42,6 +42,7 @@ class OseonAPIClient:
         query_parameters: dict[str, Any] | None = None,
         header_parameters: dict[str, Any] | None = None,
         body: Any = None,
+        content_type: str | None = None,
     ) -> dict[str, Any]:
         operation = self.registry.get(method, path)
         if operation.method not in READ_METHODS and not self.config.allow_writes:
@@ -101,6 +102,7 @@ class OseonAPIClient:
                 f"{self.config.username}:{self.config.password}".encode()
             ).decode()
             headers["Authorization"] = f"Basic {encoded}"
+        self.registry.validate_security(operation, headers.get("Authorization", ""))
         target = operation.path
         for parameter in operation.parameters:
             if parameter["in"] != "path":
@@ -122,6 +124,8 @@ class OseonAPIClient:
                 query.append((name, self._parameter(parameter, value)))
         bodies = [p for p in operation.parameters if p["in"] == "body"]
         kwargs: dict[str, Any] = {}
+        if not bodies and content_type is not None:
+            raise ValueError("Operation does not declare a request media type")
         if not bodies and body is not None:
             raise ValueError("Operation does not declare a request body")
         if bodies:
@@ -133,10 +137,25 @@ class OseonAPIClient:
                 consumes = operation.definition.get(
                     "consumes", self.registry.document.get("consumes", [])
                 )
-                if "application/json" in consumes or not consumes:
+                selected = content_type or next(
+                    (
+                        media
+                        for media in consumes
+                        if media == "application/json"
+                        or media == "text/json"
+                        or media.endswith("+json")
+                    ),
+                    consumes[0] if consumes else "application/json",
+                )
+                if content_type and (not consumes or selected not in consumes):
+                    raise ValueError("Request media type is not declared")
+                if selected in {"application/json", "text/json"} or selected.endswith(
+                    "+json"
+                ):
+                    headers["Content-Type"] = selected
                     kwargs["json"] = body
-                elif "text/plain" in consumes and isinstance(body, str):
-                    headers["Content-Type"] = "text/plain"
+                elif selected == "text/plain" and isinstance(body, str):
+                    headers["Content-Type"] = selected
                     kwargs["content"] = body.encode()
                 else:
                     raise ValueError("Unsupported request media type")
@@ -160,11 +179,38 @@ class OseonAPIClient:
                 "Oseon transport failed; no automatic retry. "
                 "A write outcome may be unknown."
             ) from None
-        if not 200 <= response.status_code < 300:
+        declared = operation.definition.get("responses", {})
+        declaration = declared.get(str(response.status_code), declared.get("default"))
+        if response.status_code == 304 and declaration is not None:
+            result: dict[str, Any] = {"status": 304, "data": None}
+        elif not 200 <= response.status_code < 300:
             raise ValueError(
                 f"Oseon returned HTTP {response.status_code}; no automatic retry. "
                 "A write outcome may be unknown."
             ) from None
+        else:
+            result = self._decode_response(response)
+        declaration = self.registry.resolve(declaration or {})
+        protected_response_headers = {
+            "authorization",
+            "proxy-authorization",
+            "set-cookie",
+            "cookie",
+            "authentication-info",
+            "proxy-authentication-info",
+        }
+        metadata = {
+            name: response.headers[name]
+            for name in declaration.get("headers", {})
+            if name.lower() not in protected_response_headers
+            and name in response.headers
+        }
+        if metadata:
+            result["headers"] = metadata
+        return result
+
+    @staticmethod
+    def _decode_response(response: httpx.Response) -> dict[str, Any]:
         if not response.content:
             return {"status": response.status_code, "data": None}
         content_type = response.headers.get("content-type", "").split(";")[0].lower()

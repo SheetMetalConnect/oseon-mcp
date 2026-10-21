@@ -26,6 +26,7 @@ def create_server(
     server = MCPServer(
         "oseon-mcp",
         version=__version__,
+        log_level="WARNING",
         instructions=(
             "Discover operations from the local API file, describe their inputs, "
             "Then invoke an exact method/path template. "
@@ -46,7 +47,7 @@ def create_server(
 
     @server.tool(annotations=ToolAnnotations(read_only_hint=True))
     def describe_operation(method: str, path: str) -> dict[str, Any]:
-        """Read parameters and input schemas for one registered method/path pair."""
+        """Read operation metadata, input schemas and declared response contracts."""
         try:
             return registry.describe(method, path)
         except ValueError as error:
@@ -67,11 +68,18 @@ def create_server(
         query_parameters: dict[str, Any] | None = None,
         header_parameters: dict[str, Any] | None = None,
         body: Any = None,
+        content_type: str | None = None,
     ) -> dict[str, Any]:
         """Invoke one operation. Writes require startup opt-in; no retries."""
         try:
             return await client.invoke(
-                method, path, path_parameters, query_parameters, header_parameters, body
+                method,
+                path,
+                path_parameters,
+                query_parameters,
+                header_parameters,
+                body,
+                content_type,
             )
         except ValueError as error:
             raise ToolError(str(error)) from None

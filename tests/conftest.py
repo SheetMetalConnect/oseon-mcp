@@ -1,4 +1,5 @@
 import json
+import logging
 import socket
 
 import pytest
@@ -129,3 +130,9 @@ def api_file(document, tmp_path):
     path = tmp_path / "synthetic.json"
     path.write_text(json.dumps(document))
     return path
+
+
+@pytest.fixture(autouse=True)
+def quiet_http_logs(monkeypatch):
+    for name in ("httpx", "httpx2", "httpcore", "httpcore2"):
+        monkeypatch.setattr(logging.getLogger(name), "level", logging.WARNING)

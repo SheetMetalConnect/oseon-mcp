@@ -12,6 +12,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **BREAKING:** Generic discovery, description and invocation replace order-specific tools and inferred filtering, labels and pagination.
 - **BREAKING:** A configured external Swagger 2.0 API file and origin are required; package imports no longer initialize a server.
 - Runtime method/path identities retain operations with duplicate operation IDs without bundling vendor documentation.
+- Operation descriptions expose declared metadata, security and response contracts with reachable schemas.
+- Explicit body media selection supports declared JSON and plain text; declared/default 304 responses and safe declared response headers are retained.
+- Effective security requirements are checked before HTTP, and Swagger numeric/base64 formats are validated.
+- Private-file regression coverage includes every successful response status and actual stdio discovery, description and mock invocation for every operation.
 - Registry validation covers path, query, header and body inputs, local schema references, timestamp formats and finite JSON numbers.
 - Request Accept headers follow declared response media; query, header and path arrays use their declared collection formats.
 - Source distributions include offline fixtures, usage/setup docs and supporting assets.

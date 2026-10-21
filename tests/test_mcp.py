@@ -114,3 +114,45 @@ create_server(config, registry, api).run(transport="stdio")
             "invoke_operation", {"method": "GET", "path": "/sheets"}
         )
         assert result.structured_content == {"status": 200, "data": {"synthetic": True}}
+
+
+async def test_sdk_media_selection_and_response_metadata(config, document):
+    from trumpf_oseon_mcp.registry import OperationRegistry
+
+    operation = document["paths"]["/widgets/{key}"]["put"]
+    operation["consumes"] = ["application/json", "text/json"]
+    operation["responses"] = {
+        "202": {
+            "description": "Synthetic accepted",
+            "schema": {"type": "boolean"},
+            "headers": {"ETag": {"type": "string"}},
+        }
+    }
+    registry = OperationRegistry(document)
+    config = dataclasses.replace(config, allow_writes=True)
+
+    def respond(request):
+        assert request.headers["content-type"] == "text/json"
+        return httpx.Response(202, json=False, headers={"ETag": "synthetic-tag"})
+
+    api = OseonAPIClient(config, registry, httpx.MockTransport(respond))
+    async with Client(create_server(config, registry, api)) as client:
+        described = await client.call_tool(
+            "describe_operation", {"method": "PUT", "path": "/widgets/{key}"}
+        )
+        assert described.structured_content["responses"] == operation["responses"]
+        result = await client.call_tool(
+            "invoke_operation",
+            {
+                "method": "PUT",
+                "path": "/widgets/{key}",
+                "path_parameters": {"key": "synthetic"},
+                "body": {"quantity": 2},
+                "content_type": "text/json",
+            },
+        )
+        assert result.structured_content == {
+            "status": 202,
+            "data": False,
+            "headers": {"ETag": "synthetic-tag"},
+        }

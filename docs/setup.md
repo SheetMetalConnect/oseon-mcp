@@ -20,7 +20,7 @@ Fill `.env` locally. Do not add it or the vendor file to Git. Use an absolute pa
 | `OSEON_ALLOW_WRITES` | Default `false`; only `true` enables mutation methods |
 | `OSEON_TIMEOUT` | Positive finite HTTP timeout in seconds; default `30` |
 
-Configure either the Authorization header or Basic credentials. No authentication is inferred from a vendor file. Secrets containing `#`, `!`, `@`, `$` or `=` must be preserved as literal values; quote them in `.env` as needed. The server loads `.env` from its startup directory; explicit process environment values take precedence.
+Configure either the Authorization header or Basic credentials. The configured authentication must satisfy the selected operation’s effective security requirement before HTTP. A declared Basic requirement accepts configured Basic credentials or a complete Basic Authorization header; a declared OAuth2 requirement accepts an externally obtained Bearer token. The adapter does not acquire tokens or prove their permissions. Operation security overrides the document default, including anonymous alternatives. No credential is taken from the API file. Secrets containing `#`, `!`, `@`, `$` or `=` must be preserved as literal values; quote them in `.env` as needed. The server loads `.env` from its startup directory; explicit process environment values take precedence.
 
 ## Connect an MCP host
 

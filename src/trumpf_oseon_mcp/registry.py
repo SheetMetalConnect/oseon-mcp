@@ -1,6 +1,8 @@
 """Runtime Swagger operation registry; no vendor catalog is bundled."""
 
+import base64
 import json
+import sys
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -31,6 +33,21 @@ class OperationRegistry:
         if document.get("swagger") != "2.0":
             raise ValueError("A Swagger 2.0 API document is required")
         self.document = document
+        self.format_checker = FormatChecker()
+        for name, bits in (("int32", 32), ("int64", 64)):
+            self.format_checker.checks(name)(
+                lambda value, width=bits: not isinstance(value, int)
+                or -(2 ** (width - 1)) <= value < 2 ** (width - 1)
+            )
+        for name, bound in (
+            ("float", (2 - 2**-23) * 2**127),
+            ("double", sys.float_info.max),
+        ):
+            self.format_checker.checks(name)(
+                lambda value, maximum=bound: not isinstance(value, (int, float))
+                or abs(value) <= maximum
+            )
+        self.format_checker.checks("byte")(self._base64_string)
         self._check_refs(document)
         self.base_path = document.get("basePath", "").rstrip("/")
         self._check_path(self.base_path or "/")
@@ -92,6 +109,36 @@ class OperationRegistry:
                 value = value[part.replace("~1", "/").replace("~0", "~")]
         return value
 
+    @staticmethod
+    def _base64_string(value: Any) -> bool:
+        if not isinstance(value, str):
+            return True
+        try:
+            base64.b64decode(value, validate=True)
+        except ValueError:
+            return False
+        return True
+
+    def validate_security(self, operation: Operation, authorization: str) -> None:
+        requirements = operation.definition.get(
+            "security", self.document.get("security", [])
+        )
+        schemes = self.document.get("securityDefinitions", {})
+        if not requirements:
+            return
+        prefixes = {"basic": "basic", "oauth2": "bearer"}
+        kind, _, credential = authorization.partition(" ")
+        for alternative in requirements:
+            if all(
+                credential
+                and prefixes.get(schemes.get(name, {}).get("type")) == kind.lower()
+                for name in alternative
+            ):
+                return
+        raise ValueError(
+            "Configured authentication does not satisfy operation security"
+        )
+
     def get(self, method: str, path: str) -> Operation:
         try:
             return self.operations[(method.upper(), path)]
@@ -148,8 +195,25 @@ class OperationRegistry:
                 for child in value:
                     collect(child)
 
+        responses = operation.definition.get("responses", {})
+        security = operation.definition.get(
+            "security", self.document.get("security", [])
+        )
         collect(operation.parameters)
+        collect(responses)
         return {
+            "operation_id": operation.definition.get("operationId"),
+            "summary": operation.definition.get("summary", ""),
+            "description": operation.definition.get("description", ""),
+            "tags": operation.definition.get("tags", []),
+            "deprecated": operation.definition.get("deprecated", False),
+            "responses": responses,
+            "security": security,
+            "security_schemes": {
+                name: self.document.get("securityDefinitions", {}).get(name, {})
+                for alternative in security
+                for name in alternative
+            },
             "method": operation.method,
             "path": operation.path,
             "parameters": operation.parameters,
@@ -169,7 +233,7 @@ class OperationRegistry:
         except (TypeError, ValueError):
             raise ValueError("Input must be JSON with finite numbers") from None
         root = {**self.document, **schema}
-        validator = Draft4Validator(root, format_checker=FormatChecker())
+        validator = Draft4Validator(root, format_checker=self.format_checker)
         if next(validator.iter_errors(value), None) is not None:
             raise ValueError("Value does not match the declared API schema")
 
