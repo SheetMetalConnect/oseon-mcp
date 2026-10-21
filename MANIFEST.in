@@ -1,5 +1,6 @@
 include LICENSE README.md CHANGELOG.md CONTRIBUTING.md ARCHITECTURE.md
-include env.example uv.lock
+include uv.lock
+include .flake8
 recursive-include tests *.py
 recursive-include docs *.md *.svg
 recursive-include examples *.py

@@ -20,7 +20,11 @@ class Config:
     timeout: float = 30.0
 
     def __post_init__(self) -> None:
-        url = urlsplit(self.base_url)
+        try:
+            url = urlsplit(self.base_url)
+            url.port
+        except ValueError:
+            raise ValueError("OSEON_BASE_URL must be a valid HTTP(S) origin") from None
         if (
             url.scheme not in {"http", "https"}
             or not url.hostname
@@ -29,6 +33,7 @@ class Config:
             or url.query
             or url.fragment
             or url.path not in {"", "/"}
+            or any(c.isspace() or c in "?#\\" for c in self.base_url)
         ):
             raise ValueError(
                 "OSEON_BASE_URL must be an HTTP(S) origin without credentials"

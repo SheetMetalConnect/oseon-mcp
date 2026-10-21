@@ -1,13 +1,15 @@
 """Validated registry dispatch with one HTTP attempt and sanitized failures."""
 
 import base64
+import json
+import re
 from typing import Any
 from urllib.parse import quote
 
 import httpx
 
 from ..config import Config
-from ..registry import OperationRegistry, READ_METHODS
+from ..registry import Operation, OperationRegistry, READ_METHODS
 
 
 class OseonAPIClient:
@@ -52,57 +54,7 @@ class OseonAPIClient:
         header_parameters = header_parameters or {}
         self.registry.validate_parameters(operation, "path", path_parameters)
         self.registry.validate_parameters(operation, "query", query_parameters)
-        protected = {
-            "authorization",
-            "host",
-            "cookie",
-            "content-length",
-            "transfer-encoding",
-            "connection",
-            "proxy-authorization",
-            "content-type",
-            "api-version",
-        }
-        if any(name.lower() in protected for name in header_parameters):
-            raise ValueError(
-                "Transport and authentication headers cannot be supplied by tools"
-            )
-        produces = operation.definition.get(
-            "produces", self.registry.document.get("produces", [])
-        )
-        headers = {
-            "Accept": ", ".join(produces) if produces else "*/*",
-            "api-version": self.config.api_version,
-        }
-        defaults = {
-            "Trumpf-User": self.config.user_header,
-            "Trumpf-Terminal": self.config.terminal_header,
-        }
-        declared_headers = {
-            p["name"]: p for p in operation.parameters if p["in"] == "header"
-        }
-        supplied_headers = {
-            k: v for k, v in defaults.items() if v and k in declared_headers
-        }
-        supplied_headers.update(header_parameters)
-        self.registry.validate_parameters(operation, "header", supplied_headers)
-        for name, value in supplied_headers.items():
-            value = self._parameter(declared_headers[name], value)
-            if (
-                not name.isascii()
-                or not name.replace("-", "").isalnum()
-                or any((ord(c) < 32 and c != "\t") or ord(c) > 126 for c in value)
-            ):
-                raise ValueError("Invalid HTTP header")
-            headers[name] = value
-        if self.config.authorization:
-            headers["Authorization"] = self.config.authorization
-        elif self.config.username:
-            encoded = base64.b64encode(
-                f"{self.config.username}:{self.config.password}".encode()
-            ).decode()
-            headers["Authorization"] = f"Basic {encoded}"
-        self.registry.validate_security(operation, headers.get("Authorization", ""))
+        headers = self._headers(operation, header_parameters)
         target = operation.path
         for parameter in operation.parameters:
             if parameter["in"] != "path":
@@ -122,43 +74,8 @@ class OseonAPIClient:
                 query.extend((name, self._scalar(item)) for item in value)
             else:
                 query.append((name, self._parameter(parameter, value)))
-        bodies = [p for p in operation.parameters if p["in"] == "body"]
-        kwargs: dict[str, Any] = {}
-        if not bodies and content_type is not None:
-            raise ValueError("Operation does not declare a request media type")
-        if not bodies and body is not None:
-            raise ValueError("Operation does not declare a request body")
-        if bodies:
-            parameter = bodies[0]
-            if body is None and parameter.get("required"):
-                raise ValueError("Missing required request body")
-            if body is not None:
-                self.registry.validate(body, parameter["schema"])
-                consumes = operation.definition.get(
-                    "consumes", self.registry.document.get("consumes", [])
-                )
-                selected = content_type or next(
-                    (
-                        media
-                        for media in consumes
-                        if media == "application/json"
-                        or media == "text/json"
-                        or media.endswith("+json")
-                    ),
-                    consumes[0] if consumes else "application/json",
-                )
-                if content_type and (not consumes or selected not in consumes):
-                    raise ValueError("Request media type is not declared")
-                if selected in {"application/json", "text/json"} or selected.endswith(
-                    "+json"
-                ):
-                    headers["Content-Type"] = selected
-                    kwargs["json"] = body
-                elif selected == "text/plain" and isinstance(body, str):
-                    headers["Content-Type"] = selected
-                    kwargs["content"] = body.encode()
-                else:
-                    raise ValueError("Unsupported request media type")
+        body_headers, kwargs = self._body(operation, body, content_type)
+        headers.update(body_headers)
         url = self.config.base_url.rstrip("/") + self.registry.base_path + target
         try:
             async with httpx.AsyncClient(
@@ -174,7 +91,7 @@ class OseonAPIClient:
                     headers=headers,
                     **kwargs,
                 )
-        except httpx.HTTPError:
+        except (httpx.HTTPError, httpx.InvalidURL, UnicodeError):
             raise ValueError(
                 "Oseon transport failed; no automatic retry. "
                 "A write outcome may be unknown."
@@ -209,6 +126,106 @@ class OseonAPIClient:
             result["headers"] = metadata
         return result
 
+    def _headers(
+        self, operation: Operation, header_parameters: dict[str, Any]
+    ) -> dict[str, str]:
+        protected = {
+            "authorization",
+            "host",
+            "cookie",
+            "content-length",
+            "transfer-encoding",
+            "connection",
+            "proxy-authorization",
+            "content-type",
+            "api-version",
+        }
+        if any(name.lower() in protected for name in header_parameters):
+            raise ValueError(
+                "Transport and authentication headers cannot be supplied by tools"
+            )
+        produces = operation.definition.get(
+            "produces", self.registry.document.get("produces", [])
+        )
+        headers = {
+            "Accept": ", ".join(produces) if produces else "*/*",
+            "api-version": self.config.api_version,
+        }
+        defaults = {
+            "Trumpf-User": self.config.user_header,
+            "Trumpf-Terminal": self.config.terminal_header,
+        }
+        declared_headers = {
+            p["name"].lower(): p for p in operation.parameters if p["in"] == "header"
+        }
+        supplied_headers = {
+            declared_headers[name.lower()]["name"]: value
+            for name, value in defaults.items()
+            if value and name.lower() in declared_headers
+        }
+        if len({name.lower() for name in header_parameters}) != len(header_parameters):
+            raise ValueError("Duplicate HTTP header parameter")
+        for name, value in header_parameters.items():
+            declared_name = declared_headers.get(name.lower(), {}).get("name", name)
+            supplied_headers[declared_name] = value
+        self.registry.validate_parameters(operation, "header", supplied_headers)
+        for name, value in supplied_headers.items():
+            value = self._parameter(declared_headers[name.lower()], value)
+            if not re.fullmatch(r"[!#$%&'*+.^_`|~0-9A-Za-z-]+", name) or any(
+                (ord(c) < 32 and c != "\t") or ord(c) > 126 for c in value
+            ):
+                raise ValueError("Invalid HTTP header")
+            headers[name] = value
+        if self.config.authorization:
+            headers["Authorization"] = self.config.authorization
+        elif self.config.username:
+            encoded = base64.b64encode(
+                f"{self.config.username}:{self.config.password}".encode()
+            ).decode()
+            headers["Authorization"] = f"Basic {encoded}"
+        self.registry.validate_security(operation, headers.get("Authorization", ""))
+        return headers
+
+    def _body(
+        self, operation: Operation, body: Any, content_type: str | None
+    ) -> tuple[dict[str, str], dict[str, Any]]:
+        bodies = [p for p in operation.parameters if p["in"] == "body"]
+        headers: dict[str, str] = {}
+        kwargs: dict[str, Any] = {}
+        if not bodies and content_type is not None:
+            raise ValueError("Operation does not declare a request media type")
+        if not bodies and body is not None:
+            raise ValueError("Operation does not declare a request body")
+        if not bodies:
+            return headers, kwargs
+        parameter = bodies[0]
+        consumes = operation.definition.get(
+            "consumes", self.registry.document.get("consumes", [])
+        )
+        if content_type is not None and content_type not in consumes:
+            raise ValueError("Request media type is not declared")
+        if body is None:
+            if parameter.get("required"):
+                raise ValueError("Missing required request body")
+            return headers, kwargs
+        self.registry.validate(body, parameter["schema"])
+        selected = content_type or next(
+            (
+                media
+                for media in consumes
+                if media in {"application/json", "text/json"} or media.endswith("+json")
+            ),
+            consumes[0] if consumes else "application/json",
+        )
+        headers["Content-Type"] = selected
+        if selected in {"application/json", "text/json"} or selected.endswith("+json"):
+            kwargs["json"] = body
+        elif selected == "text/plain" and isinstance(body, str):
+            kwargs["content"] = body.encode()
+        else:
+            raise ValueError("Unsupported request media type")
+        return headers, kwargs
+
     @staticmethod
     def _decode_response(response: httpx.Response) -> dict[str, Any]:
         if not response.content:
@@ -220,7 +237,9 @@ class OseonAPIClient:
             or content_type == "text/json"
         ):
             try:
-                return {"status": response.status_code, "data": response.json()}
+                data = response.json()
+                json.dumps(data, allow_nan=False)
+                return {"status": response.status_code, "data": data}
             except ValueError:
                 raise ValueError("Oseon returned invalid JSON") from None
         if content_type.startswith("text/"):

@@ -2,13 +2,15 @@
 
 import base64
 import json
-import sys
 import re
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from jsonschema import Draft4Validator, FormatChecker
+from referencing import Registry
+from referencing.exceptions import Unresolvable
 
 METHODS = frozenset(
     {"get", "head", "options", "post", "put", "patch", "delete", "trace"}
@@ -30,9 +32,13 @@ class Operation:
 
 class OperationRegistry:
     def __init__(self, document: dict[str, Any]):
-        if document.get("swagger") != "2.0":
-            raise ValueError("A Swagger 2.0 API document is required")
-        self.document = document
+        if (
+            not isinstance(document, dict)
+            or document.get("swagger") != "2.0"
+            or not isinstance(document.get("paths"), dict)
+        ):
+            raise ValueError("A Swagger 2.0 API document with paths is required")
+        self.document: dict[str, Any] = document
         self.format_checker = FormatChecker()
         for name, bits in (("int32", 32), ("int64", 64)):
             self.format_checker.checks(name)(
@@ -54,9 +60,13 @@ class OperationRegistry:
         self.operations: dict[tuple[str, str], Operation] = {}
         for path, item in document["paths"].items():
             self._check_path(path)
+            if not isinstance(item, dict):
+                raise ValueError("API path definitions must be objects")
             for method, definition in item.items():
                 if method not in METHODS:
                     continue
+                if not isinstance(definition, dict):
+                    raise ValueError("API operation definitions must be objects")
                 parameters = {}
                 for parameter in item.get("parameters", []) + definition.get(
                     "parameters", []
@@ -66,7 +76,10 @@ class OperationRegistry:
                         raise ValueError(
                             "Unsupported parameter location in API document"
                         )
-                    parameters[(parameter["in"], parameter["name"])] = parameter
+                    name = parameter["name"]
+                    if parameter["in"] == "header":
+                        name = name.lower()
+                    parameters[(parameter["in"], name)] = parameter
                 operation = Operation(
                     method.upper(), path, definition, tuple(parameters.values())
                 )
@@ -89,8 +102,12 @@ class OperationRegistry:
 
     def _check_refs(self, value: Any) -> None:
         if isinstance(value, dict):
-            if "$ref" in value and not value["$ref"].startswith("#/"):
-                raise ValueError("Only local API references are supported")
+            if "$ref" in value:
+                if not isinstance(value["$ref"], str) or not value["$ref"].startswith(
+                    "#/"
+                ):
+                    raise ValueError("Only local API references are supported")
+                self.resolve(value)
             for child in value.values():
                 self._check_refs(child)
         elif isinstance(value, list):
@@ -102,11 +119,18 @@ class OperationRegistry:
         while "$ref" in value:
             ref = value["$ref"]
             if ref in seen:
-                raise ValueError("Cyclic parameter reference")
+                raise ValueError("Cyclic local API reference")
             seen.add(ref)
+            if not isinstance(ref, str) or not ref.startswith("#/"):
+                raise ValueError("Only local API references are supported")
             value = self.document
-            for part in ref[2:].split("/"):
-                value = value[part.replace("~1", "/").replace("~0", "~")]
+            try:
+                for part in ref[2:].split("/"):
+                    value = value[part.replace("~1", "/").replace("~0", "~")]
+            except (KeyError, TypeError):
+                raise ValueError("Unresolvable local API reference") from None
+            if not isinstance(value, dict):
+                raise ValueError("Local API reference must resolve to an object")
         return value
 
     @staticmethod
@@ -180,7 +204,6 @@ class OperationRegistry:
 
     def describe(self, method: str, path: str) -> dict[str, Any]:
         operation = self.get(method, path)
-        # Return only local definitions reachable from this operation.
         schemas: dict[str, Any] = {}
 
         def collect(value: Any) -> None:
@@ -228,13 +251,20 @@ class OperationRegistry:
         }
 
     def validate(self, value: Any, schema: dict[str, Any]) -> None:
+        self._check_refs(schema)
         try:
             json.dumps(value, allow_nan=False)
         except (TypeError, ValueError):
             raise ValueError("Input must be JSON with finite numbers") from None
         root = {**self.document, **schema}
-        validator = Draft4Validator(root, format_checker=self.format_checker)
-        if next(validator.iter_errors(value), None) is not None:
+        validator = Draft4Validator(
+            root, format_checker=self.format_checker, registry=Registry()
+        )
+        try:
+            invalid = next(validator.iter_errors(value), None) is not None
+        except (Unresolvable, RecursionError):
+            raise ValueError("Unresolvable or cyclic local API schema") from None
+        if invalid:
             raise ValueError("Value does not match the declared API schema")
 
     def validate_parameters(

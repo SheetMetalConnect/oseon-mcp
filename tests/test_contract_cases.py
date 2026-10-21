@@ -285,3 +285,30 @@ async def test_anonymous_security_alternative_needs_no_credential(config, docume
         httpx.MockTransport(respond),
     )
     await api.invoke("GET", "/sheets")
+
+
+@pytest.mark.parametrize(
+    "authorization", ["Basic c3ludGhldGljOnN5bnRoZXRpYw==", "Bearer synthetic"]
+)
+async def test_basic_and_oauth_conjunction_is_not_reinterpreted_as_or(
+    config, document, authorization
+):
+    secured_document(document)
+    document["securityDefinitions"]["SyntheticOAuth"] = {
+        "type": "oauth2",
+        "flow": "implicit",
+        "scopes": {},
+        "authorizationUrl": "https://synthetic.invalid/authorize",
+    }
+    document["security"] = [{"SyntheticBasic": [], "SyntheticOAuth": []}]
+
+    def forbidden(request):
+        pytest.fail("Unsatisfied conjunctive security reached HTTP")
+
+    api = OseonAPIClient(
+        dataclasses.replace(config, authorization=authorization),
+        OperationRegistry(document),
+        httpx.MockTransport(forbidden),
+    )
+    with pytest.raises(ValueError, match="authentication"):
+        await api.invoke("GET", "/sheets")

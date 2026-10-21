@@ -2,7 +2,7 @@
 
 # Oseon MCP
 
-A local MCP server that discovers and invokes operations from a user-supplied Oseon API file. It uses the MCP Python SDK v2 and starts in read-only mode.
+Inspect Oseon order and material information with an MCP agent using the operations declared in your local API file. The server uses MCP Python SDK v2 and starts in read-only mode.
 
 **Use at your own risk. This educational software carries no warranty. Write access can change manufacturing data.**
 
@@ -18,6 +18,18 @@ flowchart LR
     A --> S
     S --> H
 ```
+
+## What you can ask
+
+- **Customer orders:** “Show the details of a known customer order.”
+- **Production orders:** “Show the details of a known production order.”
+- **Raw sheets and stock:** “Show material information for a known raw sheet or stock item.”
+
+These activities use declared GET operations with the required identifiers. The agent discovers the matching operations, describes their inputs and responses, then invokes the selected operation. See the [tool usage guide](docs/usage.md).
+
+## Scope
+
+API/MCP parity means support for the declared REST method/path operations in the supplied Swagger 2.0 file, within the documented input and media rules. It does not establish installation-specific availability, permissions or live business outcomes. Mutations require explicit startup opt-in. A read-only SQL connection to TRUMPF systems is **out of scope** for this educational demo.
 
 | Guide | Contents |
 |---|---|
@@ -39,4 +51,4 @@ Built by [Luke van Enkhuizen](https://vanenkhuizen.com) to demonstrate AI + manu
 
 **No TRUMPF affiliation** — Educational project using public API documentation. TRUMPF owns Oseon and its API documentation; this repository does not distribute that documentation.
 
-**MIT License** — [License terms](LICENSE) | **v3.0.0** — Runtime API registry and MCP SDK v2 adapter.
+**MIT License** — [License terms](LICENSE) | **v2.0.0** — Runtime API registry and MCP SDK v2 adapter.

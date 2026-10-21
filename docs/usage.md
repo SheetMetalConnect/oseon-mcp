@@ -16,6 +16,8 @@ Required parameters, types, enums, numeric constraints, finite JSON numbers, sup
 
 `describe_operation` returns the selected operation’s summary, description, tags, deprecation flag, declared security and response contracts. Its schema map includes only references reachable from that operation’s inputs and responses. These are local metadata, not evidence of installation behavior.
 
+Security alternatives retain Swagger's OR/AND semantics. Requirements that cannot be satisfied by the single configured Authorization header are rejected before HTTP; registration and description remain available.
+
 Responses retain their JSON structure. Empty responses return `data: null`; text responses return a string; other media return base64 data with the content type and encoding. Declared response headers are returned as strings under `headers`; credential/cookie headers are withheld. A 304 result returns `data: null` only when declared for the operation or covered by its default response. Redirects are never followed. Large responses and files are read into memory, so select narrow API filters where the supplied contract permits them.
 
 ## Breaking MCP interface migration
@@ -28,7 +30,6 @@ Only `discover_operations`, `describe_operation` and `invoke_operation` are regi
 | Production orders | `get_production_orders`, `search_production_orders`, `get_in_progress_production_orders`, `get_released_production_orders`, `get_finished_production_orders`, `get_overdue_production_orders` |
 | Dashboards | `get_production_summary`, `get_orders_summary` |
 
-
-The previous order-specific MCP tools, dashboard names, default sorting, recent-date filters and automatic pagination are replaced by these three generic tools. Package imports no longer create a server or read configuration. Construct a server with `create_server(config)` from `trumpf_oseon_mcp.__main__`; use `Config`, `OperationRegistry` and `OseonAPIClient.invoke` for programmatic dispatch. The [example](../examples/basic_usage.py) performs local discovery without HTTP.
+The previous order-specific MCP tools, dashboard names, default sorting, recent-date filters and automatic pagination are replaced by these three generic tools. The old Python `tools`, `models`, `utils` and exception modules are also removed. Package imports do not create a server or read configuration. Construct a server with `create_server(config)` from `trumpf_oseon_mcp.__main__`; use `Config`, `OperationRegistry` and `OseonAPIClient.invoke` for programmatic dispatch. The [example](../examples/basic_usage.py) performs local discovery without HTTP.
 
 Local-file mock coverage proves registration and request construction. It does not establish that every documented operation exists on an installation, that credentials authorize it, or that an accepted mutation produces its intended business effect.

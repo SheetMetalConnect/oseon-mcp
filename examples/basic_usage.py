@@ -1,13 +1,10 @@
 """Inspect local operation metadata without making an HTTP request."""
 
-from dotenv import load_dotenv
-
 from trumpf_oseon_mcp.config import get_config
 from trumpf_oseon_mcp.registry import OperationRegistry
 
 
 def main() -> None:
-    load_dotenv(interpolate=False)
     registry = OperationRegistry.load(get_config().api_file)
     result = registry.discover(limit=5)
     print(f"Registered operations: {result['total']}")

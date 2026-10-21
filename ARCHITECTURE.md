@@ -5,12 +5,10 @@ The current stdio surface is defined in [`__main__.py`](src/trumpf_oseon_mcp/__m
 | Source | Responsibility |
 |---|---|
 | [`config.py`](src/trumpf_oseon_mcp/config.py) | Startup environment, origin validation and explicit write opt-in |
-| [`registry.py`](src/trumpf_oseon_mcp/registry.py) | Runtime method/path identities, local references, discovery and input validation |
+| [`registry.py`](src/trumpf_oseon_mcp/registry.py) | Runtime method/path identities, local references without external retrieval, discovery and input validation |
 | [`api/client.py`](src/trumpf_oseon_mcp/api/client.py) | Encoded request construction, authentication, one HTTP attempt and response decoding |
 | [`tests/`](tests/) | Synthetic, network-blocked tests and optional private-file mock coverage |
 
 `create_server` loads the selected API file once and registers three generic tools. Duplicate vendor operation IDs remain separate because the registry key is the method/path pair. Discovery and description perform no HTTP. Invocation validates inputs and applies the write gate before constructing a request to the configured origin.
-
-The package's older `tools`, `models`, `utils` and exception modules remain unchanged source references; they are not registered by the server. Their order-specific assumptions are not part of the generic adapter's behavior.
 
 Installation and recovery are owned by [setup](docs/setup.md); the request and response contract is in [usage](docs/usage.md).

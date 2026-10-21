@@ -19,4 +19,14 @@ The optional tests print aggregate method, response-case and stdio operation cou
 
 Source distributions include the shared test fixtures, setup and usage docs, and README banner. After extracting a source distribution, install its locked development dependencies and run the same offline suite from that extracted directory.
 
-Format edited Python files with Black. Build locally with `uv build --no-sources`. Changes include applicable offline tests, usage documentation and changelog entries. GitHub Actions are not used; PRs state local commands, results and verification limits. See [MIT terms](LICENSE).
+Run the source checks from the checkout:
+
+```sh
+uv run --locked black --check src tests examples
+uv run --locked flake8 src tests examples
+uv run --locked mypy src examples
+bash -n scripts/launch_mcp.sh scripts/raycast_mcp.sh
+uv build --no-sources
+```
+
+Changes include applicable offline tests, usage documentation and changelog entries. GitHub Actions are not used; PRs state local commands, results and verification limits. See [MIT terms](LICENSE).

@@ -3,7 +3,6 @@
 import logging
 from typing import Any
 
-from dotenv import load_dotenv
 from mcp.server import MCPServer
 from mcp.types import ToolAnnotations
 from mcp.server.mcpserver.exceptions import ToolError
@@ -29,7 +28,7 @@ def create_server(
         log_level="WARNING",
         instructions=(
             "Discover operations from the local API file, describe their inputs, "
-            "Then invoke an exact method/path template. "
+            "then invoke an exact method/path template. "
             "No inferred labels, filters, sorting or pagination. "
             "Tool results are visible to the MCP host and its model provider."
         ),
@@ -88,7 +87,6 @@ def create_server(
 
 
 def main() -> None:
-    load_dotenv(interpolate=False)
     logging.basicConfig(level=logging.WARNING)
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("httpx2").setLevel(logging.WARNING)

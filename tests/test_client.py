@@ -1,4 +1,4 @@
-"""Deterministic offline regression tests replacing the former live-I/O script."""
+"""Offline request, registry and configuration regressions."""
 
 import dataclasses
 import json
@@ -85,6 +85,7 @@ async def test_request_encoding_auth_and_unmodified_json(config, registry):
         {"query_parameters": {"active": "true"}},
         {"query_parameters": {"flags": [4]}},
         {"header_parameters": {"Authorization": "replacement"}},
+        {"header_parameters": {"api-version": "replacement"}},
         {"header_parameters": {"Host": "evil.invalid"}},
         {"header_parameters": {"Trace": "line\r\ninjection"}},
         {"header_parameters": {"Unknown": "x"}},
@@ -404,7 +405,3 @@ async def test_finite_numeric_query(config, document):
         config, OperationRegistry(document), httpx.MockTransport(respond)
     )
     await api.invoke("GET", "/sheets", query_parameters={"amount": 1.25})
-
-
-if __name__ == "__main__":
-    raise SystemExit(pytest.main([__file__, "-q"]))
