@@ -1,0 +1,30 @@
+name: Feature
+description: Request a concrete change in supported software behavior.
+labels: [enhancement]
+body:
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      options:
+        - MCP server
+        - Operation registry
+        - HTTP client
+        - Configuration and launchers
+        - Packaging and documentation
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Inputs and resulting behavior
+      description: Use generic examples without client names, data or private connection details.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: Checkable behavior and the offline tests that prove it.
+    validations:
+      required: true

@@ -1,0 +1,42 @@
+name: Bug
+description: Report observed software behavior that differs from its contract.
+labels: [bug]
+body:
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      options:
+        - MCP server
+        - Operation registry
+        - HTTP client
+        - Configuration and launchers
+        - Packaging and documentation
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Package version or commit
+    validations:
+      required: true
+  - type: textarea
+    id: observed
+    attributes:
+      label: Observed behavior
+      description: Use synthetic examples only. Exclude client names, payloads, credentials and private connection details.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Offline reproduction
+      description: Steps or a synthetic fixture that reproduces the problem.
+    validations:
+      required: true
