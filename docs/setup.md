@@ -15,7 +15,7 @@ Supply the variables below through the server process environment using your ver
 | `OSEON_AUTHORIZATION` | Complete Authorization header, as required by the installation |
 | `OSEON_USERNAME`, `OSEON_PASSWORD` | Alternative Basic authentication; configure both or neither |
 | `OSEON_USER_HEADER`, `OSEON_TERMINAL_HEADER` | Optional booking headers, sent only where declared in the selected operation |
-| `OSEON_API_VERSION` | API version header; default `2.0` |
+| `OSEON_API_VERSION` | API version header; default `2.0`; validated against its schema where declared |
 | `OSEON_ALLOW_WRITES` | Default `false`; only `true` enables mutation methods |
 | `OSEON_TIMEOUT` | Positive finite HTTP timeout in seconds; default `30` |
 

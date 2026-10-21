@@ -183,3 +183,55 @@ async def test_declared_header_token_characters(config, document):
     await OseonAPIClient(
         config, OperationRegistry(document), httpx.MockTransport(respond)
     ).invoke("GET", "/sheets", header_parameters={"x_correlation": "synthetic"})
+
+
+@pytest.mark.parametrize("name", ["api-version", "API-Version"])
+@pytest.mark.parametrize("required", [False, True])
+@pytest.mark.parametrize("version", ["synthetic-v1", "synthetic-v2", ""])
+async def test_configured_api_version_follows_declared_schema(
+    config, document, name, required, version
+):
+    document["paths"]["/sheets"]["get"]["parameters"] = [
+        {
+            "name": name,
+            "in": "header",
+            "type": "string",
+            "enum": ["synthetic-v1"],
+            "required": required,
+        }
+    ]
+    calls = []
+
+    def respond(request):
+        calls.append(request)
+        assert request.headers.get_list("api-version") == ["synthetic-v1"]
+        return httpx.Response(204)
+
+    api = OseonAPIClient(
+        dataclasses.replace(config, api_version=version),
+        OperationRegistry(document),
+        httpx.MockTransport(respond),
+    )
+    if version == "synthetic-v1":
+        assert await api.invoke("GET", "/sheets") == {"status": 204, "data": None}
+        assert len(calls) == 1
+    else:
+        with pytest.raises(ValueError, match="declared API schema"):
+            await api.invoke("GET", "/sheets")
+        assert calls == []
+
+
+@pytest.mark.parametrize("name", ["api-version", "API-Version"])
+async def test_declared_api_version_still_cannot_be_overridden(config, document, name):
+    document["paths"]["/sheets"]["get"]["parameters"] = [
+        {"name": "api-version", "in": "header", "type": "string", "required": True}
+    ]
+
+    def forbidden(request):
+        pytest.fail("Protected API version override reached HTTP")
+
+    api = OseonAPIClient(
+        config, OperationRegistry(document), httpx.MockTransport(forbidden)
+    )
+    with pytest.raises(ValueError, match="cannot be supplied by tools"):
+        await api.invoke("GET", "/sheets", header_parameters={name: "replacement"})

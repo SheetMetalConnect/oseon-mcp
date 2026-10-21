@@ -149,7 +149,6 @@ class OseonAPIClient:
         )
         headers = {
             "Accept": ", ".join(produces) if produces else "*/*",
-            "api-version": self.config.api_version,
         }
         defaults = {
             "Trumpf-User": self.config.user_header,
@@ -163,6 +162,12 @@ class OseonAPIClient:
             for name, value in defaults.items()
             if value and name.lower() in declared_headers
         }
+        if "api-version" in declared_headers:
+            supplied_headers[declared_headers["api-version"]["name"]] = (
+                self.config.api_version
+            )
+        else:
+            headers["api-version"] = self.config.api_version
         if len({name.lower() for name in header_parameters}) != len(header_parameters):
             raise ValueError("Duplicate HTTP header parameter")
         for name, value in header_parameters.items():

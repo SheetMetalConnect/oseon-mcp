@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Unresolvable and cyclic local schema references fail with sanitized errors before transport. Schema validation cannot retrieve external resources.
 - Invalid origins and non-finite JSON input or response numbers are rejected without exposing values.
 - Booking defaults and supplied headers match declared header names case-insensitively; duplicate spellings are rejected.
+- Configured API version headers satisfy required declarations and are validated against declared schemas; tool overrides remain blocked.
 - Private-file tests clear captured output and suppress original exception diagnostics before reporting failures.
 - Source distributions include deterministic offline tests, fixtures, usage/setup documentation and supporting assets.
 
