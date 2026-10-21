@@ -3,8 +3,10 @@
 import dataclasses
 import json
 import os
+import subprocess
 import sys
 from collections import Counter
+from pathlib import Path
 from urllib.parse import quote
 
 from mcp import Client
@@ -391,13 +393,77 @@ async def test_local_api_stdio_contract_dispatch(capfd):
     path = os.getenv("OSEON_TEST_API_FILE")
     if not path:
         pytest.skip("Set OSEON_TEST_API_FILE for private stdio coverage")
+    failure = None
     try:
         count = await verify_stdio(path)
+        expected = os.getenv("OSEON_EXPECTED_OPERATIONS")
+        if expected and count != int(expected):
+            raise AssertionError("Stdio operation count mismatch")
     except Exception as error:
-        pytest.fail(
-            f"Private stdio dispatch failed: {type(error).__name__}", pytrace=False
-        )
-    expected = os.getenv("OSEON_EXPECTED_OPERATIONS")
-    if expected:
-        assert count == int(expected)
+        failure = type(error).__name__
+    finally:
+        unexpected_output = any(capfd.readouterr())
+    if unexpected_output and failure is None:
+        failure = "unexpected subprocess output"
+    if failure is not None:
+        pytest.fail(f"Private stdio dispatch failed: {failure}", pytrace=False)
     print("Local-file actual stdio discovery/description/invocation:", count)
+
+
+@pytest.mark.parametrize("failure", ["exception", "count", "output"])
+def test_private_stdio_failure_diagnostics_are_sanitized(tmp_path, failure):
+    url = "https://synthetic.invalid/private-contract-marker"
+    local_path = "private-contract-marker.json"
+    probe = tmp_path / "test_capture_probe.py"
+    probe.write_text(
+        f"""
+import os
+import pytest
+from tests import test_local_api as checks
+
+@pytest.mark.asyncio
+async def test_private_capture(monkeypatch, capfd):
+    async def injected_output(path):
+        os.write(1, {url.encode()!r})
+        os.write(2, {local_path.encode()!r})
+        if {failure!r} == "exception":
+            raise RuntimeError({url!r} + {local_path!r})
+        return 1
+
+    monkeypatch.setattr(checks, "verify_stdio", injected_output)
+    monkeypatch.setenv("OSEON_TEST_API_FILE", {local_path!r})
+    monkeypatch.setenv("OSEON_EXPECTED_OPERATIONS", "2" if {failure!r} == "count"
+                       else "1")
+    await checks.test_local_api_stdio_contract_dispatch(capfd)
+""",
+        encoding="utf-8",
+    )
+    root = Path(__file__).resolve().parents[1]
+    env = {
+        key: value
+        for key, value in os.environ.items()
+        if not key.startswith(("OSEON_", "PYTEST_"))
+    }
+    env["PYTHONPATH"] = str(root)
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pytest",
+            "-q",
+            "--tb=long",
+            "--showlocals",
+            "--capture=fd",
+            str(probe),
+        ],
+        cwd=root,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    diagnostics = result.stdout + result.stderr
+    leaked = url in diagnostics or local_path in diagnostics
+    assert result.returncode == 1
+    assert "Private stdio dispatch failed:" in diagnostics
+    assert not leaked
