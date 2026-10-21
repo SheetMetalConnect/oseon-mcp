@@ -1,122 +1,42 @@
-# 🏭 TRUMPF Oseon MCP Server
+<p align="center"><img src="docs/assets/banner.svg" alt="Oseon MCP" width="100%"></p>
 
-![Python](https://img.shields.io/badge/Python-3.10+-blue?logo=python)
-![MCP](https://img.shields.io/badge/MCP-1.2.0+-purple)
-![License](https://img.shields.io/badge/License-MIT-yellow)
+# Oseon MCP
 
-**Connect Claude AI to your TRUMPF Oseon manufacturing system. Ask questions in natural language, get real-time production insights.**
+A local MCP server that discovers and invokes operations from a user-supplied Oseon API file. It uses the MCP Python SDK v2 and starts in read-only mode.
 
-## Quick Start
+**Use at your own risk. This educational software carries no warranty. Write access can change manufacturing data.**
 
-**Requirements:** Python 3.10+, [Claude Desktop](https://claude.ai/download), TRUMPF Oseon API access
+Related software: [🔌 Official MCP Python SDK](https://github.com/modelcontextprotocol/python-sdk) provides the server and client protocol implementation.
 
-```bash
-# Install uv package manager
-curl -LsSf https://astral.sh/uv/install.sh | sh  # macOS/Linux
-# or: irm https://astral.sh/uv/install.ps1 | iex  # Windows
-
-# Setup
-git clone https://github.com/SheetMetalConnect/Oseon-MCP.git
-cd Oseon-MCP
-uv sync
-
-# Configure
-cp env.example .env
-# Edit .env with your Oseon server details
-
-# Install to Claude Desktop
-uv run mcp install -m trumpf_oseon_mcp --name "TRUMPF Oseon"
+```mermaid
+flowchart LR
+    F[Local API file] --> R[Operation registry]
+    H[MCP host] --> S[Stdio server]
+    S --> R
+    S --> V[Validation and write gate]
+    V --> A[Configured Oseon API]
+    A --> S
+    S --> H
 ```
 
-**Test:** Open Claude Desktop and ask: *"Show me today's production status"*
+| Guide | Contents |
+|---|---|
+| [Install and configure](docs/setup.md) | Local API file, authentication and MCP host setup |
+| [Use the tools](docs/usage.md) | Discover, describe and invoke operations |
+| [Testing and contribution](CONTRIBUTING.md) | Offline tests and private-file coverage |
+| [Implementation](ARCHITECTURE.md) | Source ownership and request flow |
+| [Changelog](CHANGELOG.md) | Package behavior changes |
 
-## What You Can Ask
+First action, from the checkout with Python 3.10+ and uv installed:
 
-**Orders & Production:**
-- *"Show me order 400139 with its production jobs"*
-- *"What orders are overdue?"*
-- *"Find all orders for customer ACME"*
-
-**Analysis:**
-- *"What's in production right now?"*
-- *"Show me completed orders this week"*
-- *"Which orders are released but not started?"*
-
-**Dashboards:**
-- *"Give me a production summary for the last 7 days"*
-
-## Features
-
-- **✅ Read-Only** - Safe, no data modifications
-- **📄 Pagination** - Efficient handling of large datasets
-- **🔍 Quality Filtering** - Excludes template/test orders
-- **📅 Smart Defaults** - 12-month rolling window
-- **🎯 15 Tools** - Customer orders, production orders, dashboards
-
-## Architecture
-
+```sh
+uv sync --locked
 ```
-src/trumpf_oseon_mcp/
-├── api/          # HTTP client
-├── models/       # Data types
-├── utils/        # Filters, formatters, pagination
-└── tools/        # MCP tools (customer_orders, production_orders, dashboards)
-```
-
-**Key Components:**
-- **OseonAPIClient**: Centralized HTTP client for Oseon API
-- **Customer Orders**: 6 read-only tools with pagination
-- **Production Orders**: 7 read-only tools with status filtering
-- **Dashboards**: 2 demo tools for quick analysis
-
-See [ARCHITECTURE.md](ARCHITECTURE.md) for detailed design.
-
-## Examples
-
-```python
-# Get customer orders (auto-paginated, last 12 months)
-get_customer_orders()
-
-# Search orders
-search_customer_orders(search_term="ACME%")
-
-# Filter by status
-get_customer_orders_by_status(status="COMPLETED")
-
-# Get production orders in progress
-get_in_progress_production_orders()
-
-# Quick dashboard
-get_production_summary(days_back=7)
-```
-
-## Development
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup.
-
-```bash
-# Install with dev dependencies
-uv sync --dev
-
-# Run tests
-uv run python tests/test_unified_system.py
-```
-
-## How It Works
-
-```
-[TRUMPF Oseon] --> [MCP Server (local)] --> [Claude Desktop]
-                         ↓
-                  Your Credentials
-                  Read-Only Access
-```
-
-**Privacy:** MCP server runs locally. Only chat messages go to Claude; your manufacturing data stays on your network.
 
 ## About
 
 Built by [Luke van Enkhuizen](https://vanenkhuizen.com) to demonstrate AI + manufacturing integration.
 
-**No TRUMPF affiliation** - Educational project using public API documentation.
+**No TRUMPF affiliation** — Educational project using public API documentation. TRUMPF owns Oseon and its API documentation; this repository does not distribute that documentation.
 
-**MIT License** - Use freely | **v2.0.0** - Modular architecture
+**MIT License** — [License terms](LICENSE) | **v3.0.0** — Runtime API registry and MCP SDK v2 adapter.

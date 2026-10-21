@@ -1,13 +1,14 @@
 [build-system]
-requires = ["setuptools>=61.0", "wheel"]
+requires = ["setuptools>=77.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "trumpf-oseon-mcp"
-version = "2.0.0"
-description = "Modular MCP Server for TRUMPF Oseon API - Read-only customer and production order management with pagination"
+version = "3.0.0"
+description = "MCP SDK v2 adapter for a user-supplied local Oseon API specification"
 readme = "README.md"
-license = {text = "MIT"}
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [
     {name = "Luke van Enkhuizen", email = "luke@sheetmetalconnect.com"}
 ]
@@ -18,7 +19,6 @@ keywords = ["mcp", "trumpf", "oseon", "manufacturing", "api", "claude"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
@@ -31,25 +31,27 @@ classifiers = [
 ]
 requires-python = ">=3.10"
 dependencies = [
-    "mcp[cli]>=1.2.0",
-    "httpx>=0.27.0",
+    "mcp>=2.3,<3",
+    "httpx>=0.28,<1",
+    "jsonschema>=4.23,<5",
     "python-dotenv>=1.0.0",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=7.0.0",
-    "pytest-asyncio>=0.21.0",
+    "pytest-asyncio>=1,<2",
     "black>=23.0.0",
     "flake8>=6.0.0",
     "mypy>=1.0.0",
+    "types-jsonschema>=4.23,<5",
 ]
 
 [project.urls]
-Homepage = "https://github.com/sheetmetalconnect/trumpf-oseon-mcp"
-Documentation = "https://github.com/sheetmetalconnect/trumpf-oseon-mcp#readme"
-Repository = "https://github.com/sheetmetalconnect/trumpf-oseon-mcp.git"
-Issues = "https://github.com/sheetmetalconnect/trumpf-oseon-mcp/issues"
+Homepage = "https://github.com/SheetMetalConnect/oseon-mcp"
+Documentation = "https://github.com/SheetMetalConnect/oseon-mcp#readme"
+Repository = "https://github.com/SheetMetalConnect/oseon-mcp.git"
+Issues = "https://github.com/SheetMetalConnect/oseon-mcp/issues"
 "Sheet Metal Connect" = "https://www.sheetmetalconnect.com/"
 
 [project.scripts]
@@ -110,4 +112,7 @@ strict_equality = true
 module = [
     "mcp.*",
 ]
-ignore_missing_imports = true 
+ignore_missing_imports = true
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

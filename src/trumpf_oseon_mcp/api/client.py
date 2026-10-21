@@ -1,198 +1,176 @@
-"""TRUMPF Oseon API Client
-
-This module provides a clean, async HTTP client for interacting with the TRUMPF Oseon API v2.
-Handles authentication, request construction, and error handling.
-"""
+"""Validated registry dispatch with one HTTP attempt and sanitized failures."""
 
 import base64
-import logging
-from typing import Any, Dict, Optional
+from typing import Any
+from urllib.parse import quote
 
 import httpx
 
-from ..exceptions import (
-    OseonAuthenticationError,
-    OseonConnectionError,
-    OseonNotFoundError,
-    OseonRateLimitError,
-    OseonServerError,
-)
-
-logger = logging.getLogger(__name__)
+from ..config import Config
+from ..registry import OperationRegistry, READ_METHODS
 
 
 class OseonAPIClient:
-    """Async HTTP client for TRUMPF Oseon API v2.
-
-    Provides methods for making authenticated requests to the Oseon API endpoints.
-    Supports customer orders and production orders endpoints.
-    """
-
-    def __init__(self, config: Dict[str, Any]):
-        """Initialize the Oseon API client.
-
-        Args:
-            config: Configuration dictionary containing:
-                - base_url: Base URL of the Oseon API
-                - username: API username
-                - password: API password
-                - default_headers: Default headers to include in requests
-        """
+    def __init__(
+        self,
+        config: Config,
+        registry: OperationRegistry,
+        transport: httpx.AsyncBaseTransport | None = None,
+    ):
         self.config = config
-        self.base_url = config['base_url']
-        self.username = config['username']
-        self.password = config['password']
-        self.default_headers = config['default_headers'].copy()
-        
-        # Log initialization without exposing credentials
-        logger.info(f"Initialized Oseon API client for {self.base_url}")
-        logger.debug(f"Username: {self.username}")  # Debug level only
+        self.registry = registry
+        self.transport = transport
 
-    def _get_auth_header(self) -> str:
-        """Generate Basic Auth header for TRUMPF Oseon API.
+    @staticmethod
+    def _scalar(value: Any) -> str:
+        return str(value).lower() if isinstance(value, bool) else str(value)
 
-        Returns:
-            Basic authentication header string
-        """
-        credentials = f"{self.username}:{self.password}"
-        encoded_credentials = base64.b64encode(credentials.encode()).decode()
-        return f"Basic {encoded_credentials}"
-
-    async def request(
+    async def invoke(
         self,
-        endpoint: str,
-        params: Optional[Dict] = None,
-        timeout: float = 30.0
-    ) -> Dict[str, Any]:
-        """Make an authenticated GET request to the TRUMPF Oseon API.
-
-        Args:
-            endpoint: API endpoint path (e.g., "/api/v2/sales/customerOrders")
-            params: Optional query parameters
-            timeout: Request timeout in seconds (default: 30.0)
-
-        Returns:
-            JSON response as dictionary
-
-        Raises:
-            OseonAuthenticationError: If authentication fails (401/403)
-            OseonNotFoundError: If resource not found (404)
-            OseonRateLimitError: If rate limit exceeded (429)
-            OseonServerError: If server error (5xx)
-            OseonConnectionError: For other connection/network errors
-        """
-        url = f"{self.base_url}{endpoint}"
-        headers = self.default_headers.copy()
-        headers["Authorization"] = self._get_auth_header()
-
-        try:
-            async with httpx.AsyncClient(timeout=timeout) as client:
-                logger.info(f"Making request to: {url}")
-                if params:
-                    logger.info(f"Query parameters: {params}")
-
-                response = await client.get(url, headers=headers, params=params)
-                response.raise_for_status()
-
-                result = response.json()
-                logger.info(f"Request successful. Records returned: {result.get('records', 'N/A')}")
-                return result
-
-        except httpx.HTTPStatusError as e:
-            status_code = e.response.status_code
-            logger.error(f"HTTP error {status_code}")
-
-            if status_code == 401 or status_code == 403:
-                raise OseonAuthenticationError(
-                    f"Authentication failed (status {status_code}). Check credentials."
-                )
-            elif status_code == 404:
-                raise OseonNotFoundError(
-                    f"Resource not found: {endpoint}"
-                )
-            elif status_code == 429:
-                raise OseonRateLimitError(
-                    f"API rate limit exceeded. Please retry later."
-                )
-            elif status_code >= 500:
-                raise OseonServerError(
-                    f"Oseon server error (status {status_code})"
-                )
+        method: str,
+        path: str,
+        path_parameters: dict[str, Any] | None = None,
+        query_parameters: dict[str, Any] | None = None,
+        header_parameters: dict[str, Any] | None = None,
+        body: Any = None,
+    ) -> dict[str, Any]:
+        operation = self.registry.get(method, path)
+        if operation.method not in READ_METHODS and not self.config.allow_writes:
+            raise ValueError("Write operations require OSEON_ALLOW_WRITES=true")
+        path_parameters = path_parameters or {}
+        query_parameters = query_parameters or {}
+        header_parameters = header_parameters or {}
+        self.registry.validate_parameters(operation, "path", path_parameters)
+        self.registry.validate_parameters(operation, "query", query_parameters)
+        protected = {
+            "authorization",
+            "host",
+            "cookie",
+            "content-length",
+            "transfer-encoding",
+            "connection",
+            "proxy-authorization",
+            "content-type",
+            "api-version",
+        }
+        if any(name.lower() in protected for name in header_parameters):
+            raise ValueError(
+                "Transport and authentication headers cannot be supplied by tools"
+            )
+        headers = {"Accept": "application/json", "api-version": self.config.api_version}
+        defaults = {
+            "Trumpf-User": self.config.user_header,
+            "Trumpf-Terminal": self.config.terminal_header,
+        }
+        declared_headers = {
+            p["name"] for p in operation.parameters if p["in"] == "header"
+        }
+        supplied_headers = {
+            k: v for k, v in defaults.items() if v and k in declared_headers
+        }
+        supplied_headers.update(header_parameters)
+        self.registry.validate_parameters(operation, "header", supplied_headers)
+        for name, value in supplied_headers.items():
+            value = self._scalar(value)
+            if (
+                not name.isascii()
+                or not name.replace("-", "").isalnum()
+                or any(ord(c) < 32 or ord(c) > 126 for c in value)
+            ):
+                raise ValueError("Invalid HTTP header")
+            headers[name] = value
+        if self.config.authorization:
+            headers["Authorization"] = self.config.authorization
+        elif self.config.username:
+            encoded = base64.b64encode(
+                f"{self.config.username}:{self.config.password}".encode()
+            ).decode()
+            headers["Authorization"] = f"Basic {encoded}"
+        target = operation.path
+        for name, value in path_parameters.items():
+            value = self._scalar(value)
+            if value in {"", ".", ".."}:
+                raise ValueError("Unsafe path parameter")
+            target = target.replace("{" + name + "}", quote(value, safe=""))
+        query: list[tuple[str, str]] = []
+        for parameter in operation.parameters:
+            name = parameter["name"]
+            if parameter["in"] != "query" or name not in query_parameters:
+                continue
+            value = query_parameters[name]
+            if isinstance(value, list):
+                fmt = parameter.get("collectionFormat", "csv")
+                values = [self._scalar(item) for item in value]
+                if fmt == "multi":
+                    query.extend((name, item) for item in values)
+                else:
+                    separators = {"csv": ",", "ssv": " ", "tsv": "\t", "pipes": "|"}
+                    if fmt not in separators:
+                        raise ValueError("Unsupported array serialization")
+                    query.append((name, separators[fmt].join(values)))
             else:
-                raise OseonConnectionError(
-                    f"API request failed with status {status_code}"
+                query.append((name, self._scalar(value)))
+        bodies = [p for p in operation.parameters if p["in"] == "body"]
+        kwargs: dict[str, Any] = {}
+        if not bodies and body is not None:
+            raise ValueError("Operation does not declare a request body")
+        if bodies:
+            parameter = bodies[0]
+            if body is None and parameter.get("required"):
+                raise ValueError("Missing required request body")
+            if body is not None:
+                self.registry.validate(body, parameter["schema"])
+                consumes = operation.definition.get(
+                    "consumes", self.registry.document.get("consumes", [])
                 )
-
-        except httpx.ConnectError as e:
-            logger.error(f"Connection failed: {str(e)}")
-            raise OseonConnectionError(
-                f"Failed to connect to Oseon API at {self.base_url}. Check network and URL."
-            )
-        except httpx.TimeoutException as e:
-            logger.error(f"Request timeout: {str(e)}")
-            raise OseonConnectionError(
-                f"Request to Oseon API timed out after {timeout}s"
-            )
-        except Exception as e:
-            logger.error(f"Unexpected error: {str(e)}")
-            raise OseonConnectionError(f"Unexpected error communicating with Oseon API: {str(e)}")
-
-    async def get_customer_orders(
-        self,
-        params: Optional[Dict] = None
-    ) -> Dict[str, Any]:
-        """Fetch customer orders from the Oseon API.
-
-        Args:
-            params: Query parameters for filtering and pagination
-
-        Returns:
-            API response containing customer orders data
-        """
-        return await self.request("/api/v2/sales/customerOrders", params)
-
-    async def get_production_orders(
-        self,
-        params: Optional[Dict] = None
-    ) -> Dict[str, Any]:
-        """Fetch production orders from the Oseon API.
-
-        Args:
-            params: Query parameters for filtering and pagination
-
-        Returns:
-            API response containing production orders data
-        """
-        return await self.request("/api/v2/pps/productionOrders/full/search", params)
-
-    async def get_customer_order_details(
-        self,
-        order_no: str
-    ) -> Dict[str, Any]:
-        """Fetch detailed information for a specific customer order.
-
-        Args:
-            order_no: Customer order number
-
-        Returns:
-            API response containing customer order details
-        """
-        return await self.request(f"/api/v2/sales/customerOrders/{order_no}")
-
-    async def health_check(self) -> bool:
-        """Check API connectivity and authentication.
-
-        Returns:
-            True if API is accessible and credentials are valid
-
-        Raises:
-            OseonConnectionError: If connection fails
-            OseonAuthenticationError: If authentication fails
-        """
+                if "application/json" in consumes or not consumes:
+                    kwargs["json"] = body
+                elif "text/plain" in consumes and isinstance(body, str):
+                    headers["Content-Type"] = "text/plain"
+                    kwargs["content"] = body.encode()
+                else:
+                    raise ValueError("Unsupported request media type")
+        url = self.config.base_url.rstrip("/") + self.registry.base_path + target
         try:
-            # Try to fetch first page with minimal data
-            await self.get_customer_orders({"size": 1, "page": 0})
-            return True
-        except Exception:
-            # Re-raise to preserve specific exception type
-            raise
+            async with httpx.AsyncClient(
+                transport=self.transport,
+                timeout=self.config.timeout,
+                follow_redirects=False,
+                trust_env=False,
+            ) as client:
+                response = await client.request(
+                    operation.method,
+                    url,
+                    params=tuple(query),
+                    headers=headers,
+                    **kwargs,
+                )
+        except httpx.HTTPError:
+            raise ValueError(
+                "Oseon transport failed; no automatic retry. A write outcome may be unknown."
+            ) from None
+        if not 200 <= response.status_code < 300:
+            raise ValueError(
+                f"Oseon returned HTTP {response.status_code}; no automatic retry. "
+                "A write outcome may be unknown."
+            ) from None
+        if not response.content:
+            return {"status": response.status_code, "data": None}
+        content_type = response.headers.get("content-type", "").split(";")[0].lower()
+        if (
+            content_type == "application/json"
+            or content_type.endswith("+json")
+            or content_type == "text/json"
+        ):
+            try:
+                return {"status": response.status_code, "data": response.json()}
+            except ValueError:
+                raise ValueError("Oseon returned invalid JSON") from None
+        if content_type.startswith("text/"):
+            return {"status": response.status_code, "data": response.text}
+        return {
+            "status": response.status_code,
+            "content_type": content_type,
+            "encoding": "base64",
+            "data": base64.b64encode(response.content).decode(),
+        }

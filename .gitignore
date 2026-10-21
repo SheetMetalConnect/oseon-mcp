@@ -201,3 +201,7 @@ Desktop.ini
 .directory
 .Trash-*
 .nfs*.env
+
+# User-supplied vendor specifications stay outside version control.
+trumpf_oseon_api*.json
+local-api/

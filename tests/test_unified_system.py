@@ -1,235 +1,282 @@
-#!/usr/bin/env python3
-"""
-Test script to validate the Unified System implementation
-Validates that the new API behavior fixes all identified issues
-"""
+"""Deterministic offline regression tests replacing the former live-I/O script."""
 
-import os
-import base64
+import dataclasses
+import json
+
 import httpx
-import sys
-from datetime import datetime, timedelta
-from dotenv import load_dotenv
+import pytest
 
-# Add src to path to import our modules
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
+from trumpf_oseon_mcp.api.client import OseonAPIClient
+from trumpf_oseon_mcp.config import Config, get_config
+from trumpf_oseon_mcp.registry import OperationRegistry
 
-from trumpf_oseon_mcp.utils.filters import (
-    get_default_since_date,
-    is_quality_production_data,
-    filter_quality_orders
+
+def test_registry_identity_discovery_and_description(registry, api_file):
+    assert len(OperationRegistry.load(api_file).operations) == 12
+    assert registry.discover(query="duplicate")["total"] == 2
+    assert registry.discover(query="jobs")["total"] == 1
+    assert registry.discover(query="raw sheets")["total"] == 1
+    page = registry.discover(limit=1)
+    assert len(page["operations"]) == 1 and page["next_offset"] == 1
+    assert registry.discover(offset=100)["next_offset"] is None
+    description = registry.describe("put", "/widgets/{key}")
+    assert description["schemas"]["#/definitions/Payload"]["required"] == ["quantity"]
+    assert description["requires_write_opt_in"]
+
+
+@pytest.mark.parametrize(
+    "kwargs", [{"offset": -1}, {"limit": 0}, {"limit": 101}, {"method": "fake"}]
 )
-from trumpf_oseon_mcp.utils.pagination import get_unified_api_params
+def test_invalid_discovery(registry, kwargs):
+    with pytest.raises(ValueError):
+        registry.discover(**kwargs)
 
-# Load environment variables
-load_dotenv()
 
-def test_unified_system_functions():
-    """Test the core unified system functions"""
-    print("\n🔧 Testing Unified System Core Functions...")
-    
-    # Test 1: Dynamic 12-month filtering
-    print("✓ Testing get_default_since_date()...")
-    since_date = get_default_since_date()
-    expected_year = datetime.now().year - 1
-    assert str(expected_year) in since_date, f"Expected year {expected_year} in {since_date}"
-    print(f"  ✅ Dynamic 12-month date: {since_date}")
-    
-    # Test 2: Unified API parameters
-    print("✓ Testing get_unified_api_params()...")
-    params = get_unified_api_params()
-    
-    # Check default parameters
-    assert params["sortBy"] == "modificationDate", "Missing sortBy"
-    assert params["sortOrder"] == "desc", "Missing sortOrder desc"
-    assert "since" in params, "Missing default since parameter"
-    print(f"  ✅ Unified params: {params}")
-    
-    # Test 3: Quality filtering
-    print("✓ Testing quality data filtering...")
-    
-    # Test template order (year 5000)
-    template_order = {"dueDate": "31.12.5000 23:59:59", "orderNo": "OR123", "customerName": "Test"}
-    assert not is_quality_production_data(template_order), "Template order should be filtered"
-    
-    # Test good production order
-    good_order = {"dueDate": "15.09.2024 12:00:00", "orderNo": "400123-001", "customerName": "Real Customer"}
-    assert is_quality_production_data(good_order), "Good order should pass"
-    
-    # Test test order
-    test_order = {"orderNo": "test-order", "customerName": "Test Customer"}
-    assert not is_quality_production_data(test_order), "Test order should be filtered"
-    
-    print("  ✅ Quality filtering working correctly")
-    
-    return True
+@pytest.mark.parametrize("method", ["POST", "PUT", "PATCH", "DELETE", "TRACE"])
+async def test_write_gate_before_transport(config, registry, method):
+    def forbidden(request):
+        pytest.fail("Disabled mutation reached transport")
 
-def test_api_with_unified_system():
-    """Test the actual API using unified system parameters"""
-    print("\n🌐 Testing API with Unified System...")
-    
-    # Get configuration from environment
-    base_url = os.getenv('OSEON_BASE_URL')
-    username = os.getenv('OSEON_USERNAME')
-    password = os.getenv('OSEON_PASSWORD')
-    api_version = os.getenv('OSEON_API_VERSION', '2.0')
-    
-    # Create auth header
-    credentials = f"{username}:{password}"
-    encoded_credentials = base64.b64encode(credentials.encode()).decode()
-    auth_header = f"Basic {encoded_credentials}"
-    
-    headers = {
-        "accept": "application/json",
-        "api-version": api_version,
-        "authorization": auth_header
+    client = OseonAPIClient(config, registry, httpx.MockTransport(forbidden))
+    with pytest.raises(ValueError, match="OSEON_ALLOW_WRITES"):
+        await client.invoke(method, "/writes")
+
+
+async def test_request_encoding_auth_and_unmodified_json(config, registry):
+    calls = []
+
+    def respond(request):
+        calls.append(request)
+        assert request.url.raw_path.startswith(b"/service/widgets/a%2Fb%20%3F%23%25")
+        assert request.url.params.get_list("flags") == ["one", "two"]
+        assert request.url.params["active"] == "false"
+        assert request.url.params["limit"] == "3"
+        assert request.headers["authorization"] == "Bearer synthetic-secret"
+        assert request.headers["Trumpf-User"] == "synthetic-user"
+        assert request.headers["Trace"] == "trace"
+        return httpx.Response(
+            200, json={"arbitrary": [{"label": "unmodified", "state": 123}]}
+        )
+
+    client = OseonAPIClient(config, registry, httpx.MockTransport(respond))
+    result = await client.invoke(
+        "get",
+        "/widgets/{key}",
+        {"key": "a/b ?#%"},
+        {"flags": ["one", "two"], "active": False, "limit": 3},
+        {"Trace": "trace"},
+    )
+    assert result["data"] == {"arbitrary": [{"label": "unmodified", "state": 123}]}
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"method": "GET", "path": "/unregistered"},
+        {"method": "POST", "path": "/sheets"},
+        {"path_parameters": {}},
+        {"path_parameters": {"key": ".."}},
+        {"path_parameters": {"key": ""}},
+        {"path_parameters": {"key": "x", "extra": "y"}},
+        {"query_parameters": {"unknown": "x"}},
+        {"query_parameters": {"limit": 6}},
+        {"query_parameters": {"limit": True}},
+        {"query_parameters": {"active": "true"}},
+        {"query_parameters": {"flags": [4]}},
+        {"header_parameters": {"Authorization": "replacement"}},
+        {"header_parameters": {"Host": "evil.invalid"}},
+        {"header_parameters": {"Trace": "line\r\ninjection"}},
+        {"header_parameters": {"Unknown": "x"}},
+        {"body": {"quantity": 1}},
+    ],
+)
+async def test_invalid_request_never_reaches_transport(config, registry, kwargs):
+    def forbidden(request):
+        pytest.fail("Invalid request reached transport")
+
+    args = {"method": "GET", "path": "/widgets/{key}", "path_parameters": {"key": "x"}}
+    args.update(kwargs)
+    with pytest.raises(ValueError):
+        await OseonAPIClient(config, registry, httpx.MockTransport(forbidden)).invoke(
+            **args
+        )
+
+
+async def test_required_reference(config, registry):
+    with pytest.raises(ValueError, match="Missing required query"):
+        await OseonAPIClient(config, registry).invoke("GET", "/required")
+
+
+@pytest.mark.parametrize(
+    "body", [None, {}, {"quantity": 0}, {"quantity": "1"}, {"quantity": 1, "extra": 1}]
+)
+async def test_body_validation(config, registry, body):
+    client = OseonAPIClient(dataclasses.replace(config, allow_writes=True), registry)
+    with pytest.raises(ValueError):
+        await client.invoke("PUT", "/widgets/{key}", {"key": "x"}, body=body)
+
+
+async def test_mutation_json_and_plain_text(config, registry):
+    calls = []
+
+    def respond(request):
+        calls.append(request)
+        if request.method == "PUT":
+            assert json.loads(request.content) == {"quantity": 2}
+            assert request.headers["content-type"] == "application/json"
+        else:
+            assert request.content == b"synthetic"
+            assert request.headers["content-type"] == "text/plain"
+        return httpx.Response(204)
+
+    client = OseonAPIClient(
+        dataclasses.replace(config, allow_writes=True),
+        registry,
+        httpx.MockTransport(respond),
+    )
+    assert await client.invoke(
+        "PUT", "/widgets/{key}", {"key": "x"}, body={"quantity": 2}
+    ) == {"status": 204, "data": None}
+    assert await client.invoke("POST", "/plain", body="synthetic") == {
+        "status": 204,
+        "data": None,
     }
-    
-    # Test 1: Default unified parameters (should get recent data)
-    print("✓ Testing default unified behavior...")
-    params_unified = get_unified_api_params(size=10, page=1)
-    
-    test_url = f"{base_url}/api/v2/sales/customerOrders"
-    
-    try:
-        with httpx.Client(timeout=10.0) as client:
-            response = client.get(test_url, headers=headers, params=params_unified)
-            
-            if response.status_code == 200:
-                data = response.json()
-                orders = data.get('collection', [])
-                
-                print(f"  ✅ Got {len(orders)} orders with unified system")
-                print(f"  📊 Total records: {data.get('records', 'N/A')}")
-                print(f"  📅 Since date filter: {params_unified.get('since', 'N/A')}")
-                
-                # Validate sorting (newest first)
-                if len(orders) >= 2:
-                    first_order = orders[0]
-                    second_order = orders[1]
-                    
-                    first_date = first_order.get('modificationDate', '')
-                    second_date = second_order.get('modificationDate', '')
-                    
-                    if first_date and second_date:
-                        print(f"  📋 First order date: {first_date}")
-                        print(f"  📋 Second order date: {second_date}")
-                        
-                        # Should be newest first (desc order)
-                        if first_date >= second_date:
-                            print("  ✅ Sorting validation: Newest first (CORRECT)")
-                        else:
-                            print("  ❌ Sorting validation: Not newest first")
-                
-                # Test quality filtering
-                print("✓ Testing quality filtering on real data...")
-                quality_orders = filter_quality_orders(orders)
-                filtered_count = len(orders) - len(quality_orders)
-                
-                print(f"  📊 Original orders: {len(orders)}")
-                print(f"  📊 Quality orders: {len(quality_orders)}")
-                print(f"  🚫 Filtered out: {filtered_count}")
-                
-                if filtered_count > 0:
-                    print("  ✅ Quality filtering is working (removed low-quality data)")
-                else:
-                    print("  ℹ️  No low-quality data found in this sample")
-                
-            else:
-                print(f"  ❌ API request failed with status {response.status_code}")
-                return False
-                
-    except Exception as e:
-        print(f"  ❌ Connection error: {str(e)}")
-        return False
-    
-    # Test 2: Override behavior (all historical data)
-    print("✓ Testing include_all_data override...")
-    params_all = get_unified_api_params(size=5, include_all_data=True)
-    
-    # Should not have since parameter when include_all_data=True
-    if "since" not in params_all:
-        print("  ✅ include_all_data=True correctly removes date filter")
-    else:
-        print("  ❌ include_all_data=True should remove date filter")
-    
-    return True
+    assert len(calls) == 2
 
-def test_issue_resolution():
-    """Test that original issues are resolved"""
-    print("\n🎯 Validating Original Issue Resolution...")
-    
-    # Issue #1: Default sorting
-    params = get_unified_api_params()
-    if params.get("sortBy") == "modificationDate" and params.get("sortOrder") == "desc":
-        print("  ✅ Issue #1 FIXED: Default sorting now newest first")
-    else:
-        print("  ❌ Issue #1 NOT FIXED: Missing proper default sorting")
-    
-    # Issue #2: Consistent date filtering  
-    customer_params = get_unified_api_params(auto_filter_recent=True)
-    production_params = get_unified_api_params(auto_filter_recent=True)
-    
-    if customer_params.get("since") == production_params.get("since"):
-        print("  ✅ Issue #2 FIXED: Consistent date filtering across functions")
-    else:
-        print("  ❌ Issue #2 NOT FIXED: Inconsistent date filtering")
-    
-    # Issue #3: get_latest parameter replaced
-    # (This is validated by the parameter schema changes)
-    print("  ✅ Issue #3 FIXED: get_latest replaced with auto_filter_recent")
-    
-    # Issue #4: Template/test data filtering
-    template_order = {"dueDate": "31.12.5000 23:59:59", "orderNo": "template"}
-    test_order = {"orderNo": "test-integration", "description": "test order"}
-    
-    if not is_quality_production_data(template_order) and not is_quality_production_data(test_order):
-        print("  ✅ Issue #4 FIXED: Template and test orders filtered out")
-    else:
-        print("  ❌ Issue #4 NOT FIXED: Template/test orders not filtered")
-    
-    # Issue #5: Dynamic filtering (no hardcoding)
-    since_date_1 = get_default_since_date()
-    since_date_2 = get_default_since_date()
-    
-    if since_date_1 == since_date_2:  # Should be same (dynamic calculation)
-        print("  ✅ Issue #5 FIXED: Dynamic 12-month filtering implemented")
-    else:
-        print("  ❌ Issue #5 NOT FIXED: Date calculation inconsistent")
-    
-    return True
 
-def run_comprehensive_validation():
-    """Run all validation tests"""
-    print("🚀 UNIFIED SYSTEM VALIDATION TEST")
-    print("=" * 60)
-    
-    try:
-        # Test core functions
-        test_unified_system_functions()
-        
-        # Test API integration
-        test_api_with_unified_system()
-        
-        # Test issue resolution
-        test_issue_resolution()
-        
-        print("\n" + "=" * 60)
-        print("🎉 ALL TESTS PASSED! Unified System is working correctly.")
-        print("\n✅ Key Achievements:")
-        print("  🔄 Always returns recent data (12 months) by default")
-        print("  📊 Quality filtering removes template/test orders")
-        print("  🆕 Consistent sorting (newest first) across all functions")
-        print("  🎯 Dynamic date calculation (no hardcoding)")
-        print("  🔧 Unified parameter schema across all commands")
-        print("  🗂️ Override options for historical data access")
-        
-        return True
-        
-    except Exception as e:
-        print(f"\n❌ VALIDATION FAILED: {str(e)}")
-        return False
+@pytest.mark.parametrize("status", [302, 401, 403, 404, 429, 500])
+async def test_http_errors_redacted_and_no_retry(config, registry, status, caplog):
+    calls = []
+
+    def respond(request):
+        calls.append(request)
+        return httpx.Response(
+            status,
+            text="synthetic-secret private diagnostics",
+            headers={"location": "https://elsewhere.invalid"},
+        )
+
+    client = OseonAPIClient(config, registry, httpx.MockTransport(respond))
+    with pytest.raises(ValueError, match=f"HTTP {status}") as error:
+        await client.invoke("GET", "/sheets")
+    assert "synthetic-secret" not in str(error.value) + caplog.text
+    assert len(calls) == 1
+
+
+async def test_timeout_redacted_no_retry(config, registry):
+    calls = []
+
+    def fail(request):
+        calls.append(request)
+        raise httpx.ReadTimeout("synthetic-secret")
+
+    with pytest.raises(ValueError, match="transport failed") as error:
+        await OseonAPIClient(config, registry, httpx.MockTransport(fail)).invoke(
+            "GET", "/sheets"
+        )
+    assert "synthetic-secret" not in str(error.value)
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize(
+    ("response", "expected"),
+    [
+        (httpx.Response(200, text="synthetic"), {"status": 200, "data": "synthetic"}),
+        (
+            httpx.Response(
+                200,
+                content=b"\x00\xff",
+                headers={"content-type": "application/octet-stream"},
+            ),
+            {
+                "status": 200,
+                "encoding": "base64",
+                "content_type": "application/octet-stream",
+                "data": "AP8=",
+            },
+        ),
+        (httpx.Response(204), {"status": 204, "data": None}),
+    ],
+)
+async def test_response_formats(config, registry, response, expected):
+    client = OseonAPIClient(
+        config, registry, httpx.MockTransport(lambda request: response)
+    )
+    assert await client.invoke("HEAD", "/probe") == expected
+
+
+async def test_invalid_json(config, registry):
+    client = OseonAPIClient(
+        config,
+        registry,
+        httpx.MockTransport(
+            lambda request: httpx.Response(
+                200,
+                content=b"private invalid",
+                headers={"content-type": "application/json"},
+            )
+        ),
+    )
+    with pytest.raises(ValueError, match="invalid JSON"):
+        await client.invoke("GET", "/sheets")
+
+
+async def test_basic_auth(config, registry):
+    config = dataclasses.replace(
+        config, authorization="", username="synthetic", password="p#!@$"
+    )
+
+    def respond(request):
+        assert request.headers["authorization"] == "Basic c3ludGhldGljOnAjIUAk"
+        return httpx.Response(204)
+
+    await OseonAPIClient(config, registry, httpx.MockTransport(respond)).invoke(
+        "GET", "/sheets"
+    )
+    assert "p#!@$" not in repr(config)
+
+
+@pytest.mark.parametrize(
+    "base_url",
+    [
+        "ftp://synthetic.invalid",
+        "https://u:p@synthetic.invalid",
+        "https://synthetic.invalid/path",
+        "https://synthetic.invalid?q=x",
+    ],
+)
+def test_config_origin_validation(base_url):
+    with pytest.raises(ValueError):
+        Config(api_file="synthetic.json", base_url=base_url)
+
+
+def test_write_opt_in_exact(monkeypatch, config):
+    monkeypatch.setenv("OSEON_API_FILE", config.api_file)
+    monkeypatch.setenv("OSEON_BASE_URL", config.base_url)
+    monkeypatch.delenv("OSEON_ALLOW_WRITES", raising=False)
+    assert not get_config().allow_writes
+    monkeypatch.setenv("OSEON_ALLOW_WRITES", "true")
+    assert get_config().allow_writes
+    monkeypatch.setenv("OSEON_ALLOW_WRITES", "yes")
+    with pytest.raises(ValueError):
+        get_config()
+
+
+@pytest.mark.parametrize(
+    "update",
+    [
+        {"swagger": "3.0"},
+        {"definitions": {"Bad": {"$ref": "https://synthetic.invalid/schema"}}},
+        {"paths": {"//evil.invalid": {"get": {}}}},
+        {"paths": {"/../escape": {"get": {}}}},
+    ],
+)
+def test_unsupported_or_unsafe_spec(document, update):
+    document.update(update)
+    with pytest.raises(ValueError):
+        OperationRegistry(document)
+
 
 if __name__ == "__main__":
-    success = run_comprehensive_validation()
-    exit(0 if success else 1)
+    raise SystemExit(pytest.main([__file__, "-q"]))

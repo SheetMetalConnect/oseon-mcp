@@ -1,21 +1,11 @@
-## Description
+## Change
 
-Clear description of changes.
+Describe the concrete problem and resulting behavior. Link the applicable issue.
 
-## Type of change
+## Validation
 
-- [ ] Bug fix
-- [ ] New feature
-- [ ] Breaking change
-- [ ] Documentation update
+State the exact local test commands and results, including verification limits.
 
-## Checklist
+## Compatibility
 
-- [ ] Code follows project style (ran `black`)
-- [ ] Tests pass (`uv run python tests/test_unified_system.py`)
-- [ ] Documentation updated
-- [ ] No breaking changes (or documented)
-
-## Testing
-
-How was this tested?
+Describe changed configuration, interfaces and usage where applicable.
